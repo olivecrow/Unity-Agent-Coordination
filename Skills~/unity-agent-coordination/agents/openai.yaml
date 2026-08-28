@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unity Agent Coordination"
+  short_description: "Coordinate canonical Unity Editor access and validation"
+  default_prompt: "Use $unity-agent-coordination when this task must claim the canonical Unity Editor for compilation, tests, Play Mode, serialized asset changes, or exact-SHA validation."

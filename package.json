@@ -1,0 +1,27 @@
+{
+  "name": "com.olivecrow.unity-agent-coordination",
+  "version": "0.2.0",
+  "displayName": "Unity Agent Coordination",
+  "description": "Coordinates concurrent AI agents while serializing shared Unity Editor ownership, compilation, tests, and exact-commit validation.",
+  "type": "tool",
+  "author": {
+    "name": "olivecrow",
+    "url": "https://github.com/olivecrow"
+  },
+  "dependencies": {
+    "com.unity.test-framework": "1.1.31",
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "editor",
+    "unity",
+    "mcp",
+    "automation",
+    "coordination"
+  ],
+  "documentationUrl": "https://github.com/olivecrow/Unity-Agent-Coordination/blob/main/Documentation~/index.md",
+  "changelogUrl": "https://github.com/olivecrow/Unity-Agent-Coordination/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/olivecrow/Unity-Agent-Coordination/blob/main/LICENSE.md"
+}
