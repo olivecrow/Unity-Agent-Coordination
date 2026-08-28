@@ -2,6 +2,13 @@
 
 [English](CHANGELOG.md) | [한국어](CHANGELOG.ko.md)
 
+## 미출시
+
+- 공개 명령 라우터 signature를 사용하는 테스트가 컴파일되도록 Editor 테스트 어셈블리에 NUnit과 Newtonsoft JSON precompiled reference를 명시했습니다.
+- `com.unity.nuget.newtonsoft-json`을 패키지와 함께 자동 resolve되는 필수 UPM 의존성으로 확인했습니다.
+- 포함된 Codex 스킬이 기존 패키지 설치를 그대로 사용하고 패키지가 없을 때만 태그가 지정된 Git UPM 의존성을 bootstrap하도록 변경했습니다.
+- 패키지 bootstrap이 프로젝트의 Unity MCP provider를 설치하거나 교체하지 않는다는 점을 문서화했습니다.
+
 ## 0.2.0 - 2026-08-28
 
 - 패키지와 어셈블리를 `Olivecrow.UnityAgentCoordination` namespace로 변경했습니다.

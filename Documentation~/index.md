@@ -12,7 +12,7 @@ The package enforces claims, one integrator, one active validation lease, exact 
 
 - Tested with Unity `6000.3.22f1`.
 - No `unity` minimum is declared in `package.json`. Package Manager may consider other Unity versions installable, but they are not guaranteed.
-- Required: `com.unity.test-framework` and `com.unity.nuget.newtonsoft-json`.
+- Required: `com.unity.test-framework` and Unity's registry `com.unity.nuget.newtonsoft-json` package. Unity Package Manager resolves both from `package.json` when this package is installed.
 - Optional: `com.coplaydev.unity-mcp`. The bundled adapter compiles for versions `10.1.2` through `10.x` and was tested with `10.1.2`.
 - Required for coordination: a Git repository. Extra Git worktrees are optional and should not be created by default for Unity projects.
 

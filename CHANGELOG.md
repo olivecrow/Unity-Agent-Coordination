@@ -4,6 +4,13 @@
 
 All notable changes to this package are documented here.
 
+## Unreleased
+
+- Added explicit NUnit and Newtonsoft JSON precompiled references to the Editor test assembly so public router signatures compile in consuming tests.
+- Confirmed `com.unity.nuget.newtonsoft-json` as a required UPM dependency that is resolved automatically with the package.
+- Updated the bundled Codex skill to reuse existing package installations and bootstrap the tagged Git UPM dependency only when the package is absent.
+- Documented that package bootstrap does not install or replace the project's Unity MCP provider.
+
 ## 0.2.0 - 2026-08-28
 
 - Renamed the package and assemblies under the `Olivecrow.UnityAgentCoordination` namespace.

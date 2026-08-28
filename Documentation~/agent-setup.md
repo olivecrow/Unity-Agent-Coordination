@@ -6,7 +6,7 @@ The package needs both an agent operating rule and a callable Unity transport ad
 
 ## Codex
 
-Copy or link `Skills~/unity-agent-coordination` into a Codex skill location, then mention the skill from the project's `AGENTS.md`. The included skill defines when coordination applies, the canonical Editor policy, validation lifecycle, bounded waits, and cleanup.
+Copy or link `Skills~/unity-agent-coordination` into a Codex skill location, then mention the skill from the project's `AGENTS.md`. The included skill defines when coordination applies, package bootstrap, the canonical Editor policy, validation lifecycle, bounded waits, and cleanup.
 
 ## Claude Code and Other Agents
 
@@ -21,6 +21,18 @@ for Git-only or filesystem-only work. Never edit coordination state files.
 ```
 
 Use the host's native guidance file, such as `AGENTS.md`, `CLAUDE.md`, or an equivalent project instruction file. The wording may change, but preserve the activation boundary and cleanup contract.
+
+## Package Bootstrap
+
+The bundled Codex skill checks the package only after a task crosses the Editor-affecting activation boundary. If `com.olivecrow.unity-agent-coordination` is already installed or declared, the agent uses its existing source and version without replacing or upgrading it. If an embedded package folder already exists, the skill adds its local `file:` dependency. Otherwise it adds the tagged public Git dependency:
+
+```json
+"com.olivecrow.unity-agent-coordination": "https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0"
+```
+
+The agent preserves unrelated `Packages/manifest.json` entries and leaves `Packages/packages-lock.json` to Unity Package Manager. Package installation is a one-time bootstrap exception because the coordination API is not available beforehand. The agent still inspects running Unity processes before the dependency edit, never launches a second Editor, and waits for package resolution before calling `status` as its first coordination action.
+
+Installing this package does not install or select an MCP provider. The agent uses the project's existing Unity MCP adapter. Adding or replacing an MCP implementation remains a separate user-authorized change.
 
 ## Adapter Check
 

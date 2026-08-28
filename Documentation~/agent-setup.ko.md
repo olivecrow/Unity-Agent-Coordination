@@ -6,7 +6,7 @@
 
 ## Codex
 
-`Skills~/unity-agent-coordination`을 Codex 스킬 위치에 복사하거나 연결하고 프로젝트 `AGENTS.md`에서 해당 스킬을 안내합니다. 포함된 스킬에는 적용 범위, canonical Editor 정책, 검증 생명주기, 상한이 있는 대기와 정리 절차가 들어 있습니다.
+`Skills~/unity-agent-coordination`을 Codex 스킬 위치에 복사하거나 연결하고 프로젝트 `AGENTS.md`에서 해당 스킬을 안내합니다. 포함된 스킬에는 적용 범위, 패키지 bootstrap, canonical Editor 정책, 검증 생명주기, 상한이 있는 대기와 정리 절차가 들어 있습니다.
 
 ## Claude Code와 다른 에이전트
 
@@ -21,6 +21,18 @@ coordination 상태 파일을 직접 편집하지 않는다.
 ```
 
 `AGENTS.md`, `CLAUDE.md` 또는 사용하는 에이전트의 프로젝트 지침 파일에 넣을 수 있습니다. 표현은 바꿔도 적용 범위와 정리 계약은 유지합니다.
+
+## 패키지 Bootstrap
+
+포함된 Codex 스킬은 작업이 Editor 영향 적용 범위를 넘은 뒤에만 패키지를 확인합니다. `com.olivecrow.unity-agent-coordination`이 이미 설치 또는 선언되어 있으면 기존 소스와 버전을 바꾸거나 업그레이드하지 않고 그대로 사용합니다. embedded package 폴더만 있다면 로컬 `file:` 의존성을 추가하고, 둘 다 없다면 다음 태그가 지정된 공개 Git 의존성을 추가합니다.
+
+```json
+"com.olivecrow.unity-agent-coordination": "https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0"
+```
+
+에이전트는 `Packages/manifest.json`의 다른 항목을 보존하고 `Packages/packages-lock.json`은 Unity Package Manager가 관리하게 둡니다. 패키지 설치는 그전에는 coordination API가 존재하지 않기 때문에 허용하는 일회성 bootstrap 예외입니다. 의존성을 수정하기 전에 실행 중인 Unity 프로세스를 확인하고 두 번째 Editor를 실행하지 않으며, package resolution이 끝난 다음 `status`를 첫 coordination action으로 호출합니다.
+
+이 패키지를 설치해도 MCP provider가 함께 설치되거나 선택되지는 않습니다. 에이전트는 프로젝트에 이미 있는 Unity MCP 어댑터를 사용합니다. MCP 구현을 추가하거나 교체하는 작업은 별도의 사용자 승인이 필요합니다.
 
 ## 어댑터 확인
 

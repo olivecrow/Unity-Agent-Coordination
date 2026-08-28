@@ -12,7 +12,7 @@
 
 - Unity `6000.3.22f1`에서 테스트했습니다.
 - `package.json`에 최소 `unity` 버전을 선언하지 않았습니다. 다른 Unity 버전에서도 설치는 허용될 수 있지만 호환을 보장하지 않습니다.
-- 필수: `com.unity.test-framework`, `com.unity.nuget.newtonsoft-json`.
+- 필수: `com.unity.test-framework`, Unity registry의 `com.unity.nuget.newtonsoft-json`. 이 패키지를 설치하면 Unity Package Manager가 `package.json`에서 두 의존성을 자동으로 resolve합니다.
 - 선택: `com.coplaydev.unity-mcp`. 포함된 어댑터는 `10.1.2` 이상 `11.0.0` 미만에서 컴파일되며 `10.1.2`에서 테스트했습니다.
 - 조정 기능은 Git 저장소가 필요합니다. 별도 Git worktree는 선택 사항이며 Unity 프로젝트에서 기본 생성하지 않습니다.
 
