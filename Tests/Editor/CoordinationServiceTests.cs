@@ -88,6 +88,146 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [Test]
+        public void SameAgentAndHeadCanRegisterIndependentSessions()
+        {
+            string secondWorktree = CreateAdditionalWorktree("worker-session-b");
+
+            AgentRecord first = service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha,
+                "First session", new[] { "Assets/FeatureA" }, sessionId: "session-a");
+            AgentRecord second = service.BeginWork("codex", CoordinationRoles.Worker, secondWorktree, Sha,
+                "Second session", new[] { "Assets/FeatureB" }, sessionId: "session-b");
+
+            Assert.That(first.AgentId, Is.EqualTo(second.AgentId));
+            Assert.That(first.HeadSha, Is.EqualTo(second.HeadSha));
+            Assert.That(first.SessionId, Is.Not.EqualTo(second.SessionId));
+            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State.Agents,
+                Has.Count.EqualTo(2));
+
+            string firstValidation = service.EnqueueValidation("codex", Sha, "First candidate",
+                Array.Empty<string>(), Array.Empty<string>(), "session-a");
+            string secondValidation = service.EnqueueValidation("codex", Sha, "Second candidate",
+                Array.Empty<string>(), Array.Empty<string>(), "session-b");
+            Assert.That(firstValidation, Is.Not.EqualTo(secondValidation));
+
+            CoordinationException exception = Assert.Throws<CoordinationException>(() =>
+                service.Claim("codex", new[] { "Assets/FeatureA/Subfolder" }, "session-b"));
+            Assert.That(exception.Code, Is.EqualTo("scope_conflict"));
+        }
+
+        [Test]
+        public void LegacyStateUsesAgentIdsAsSessionIdsWhenRead()
+        {
+            Directory.CreateDirectory(store.StateRoot);
+            File.WriteAllText(store.StatePath,
+                "{\"SchemaVersion\":1,\"Agents\":[{\"AgentId\":\"legacy-worker\"}]," +
+                "\"Claims\":[{\"AgentId\":\"legacy-worker\",\"Scope\":\"assets/legacy\"}]," +
+                "\"ValidationRequests\":[{\"RequestId\":\"legacy-request\",\"AgentId\":\"legacy-worker\"}]}");
+
+            CoordinationState state = store.ReadState();
+
+            Assert.That(state.SchemaVersion, Is.EqualTo(CoordinationSchema.CurrentVersion));
+            Assert.That(state.Agents[0].SessionId, Is.EqualTo("legacy-worker"));
+            Assert.That(state.Claims[0].SessionId, Is.EqualTo("legacy-worker"));
+            Assert.That(state.ValidationRequests[0].SessionId, Is.EqualTo("legacy-worker"));
+        }
+
+        [Test]
+        public void EditorAccessScopesMustAlreadyBeClaimedByTheSession()
+        {
+            service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha, "work",
+                new[] { "Assets/Claimed" }, sessionId: "session-a");
+
+            CoordinationException exception = Assert.Throws<CoordinationException>(() =>
+                service.EnqueueEditorAccess("codex", null, "edit scene", new[] { "scene_edit" },
+                    new[] { "Assets/Other" }, sessionId: "session-a"));
+
+            Assert.That(exception.Code, Is.EqualTo("scope_not_claimed"));
+            Assert.DoesNotThrow(() => service.EnqueueEditorAccess("codex", null, "inspect console",
+                new[] { "console" }, Array.Empty<string>(), sessionId: "session-a"));
+        }
+
+        [Test]
+        public void EditorAccessQueueIsSessionScopedFifoAndDoesNotRequireACommit()
+        {
+            string secondWorktree = CreateAdditionalWorktree("worker-session-b");
+            service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha, "First session",
+                new[] { "Assets/FeatureA" }, sessionId: "session-a");
+            service.BeginWork("codex", CoordinationRoles.Worker, secondWorktree, Sha, "Second session",
+                new[] { "Assets/FeatureB" }, sessionId: "session-b");
+
+            string firstRequest = service.EnqueueEditorAccess("codex", null, "Compile uncommitted work",
+                new[] { "import", "compile", "console" }, new[] { "Assets/FeatureA" },
+                sessionId: "session-a");
+            string idempotentRetry = service.EnqueueEditorAccess("codex", null,
+                "Compile uncommitted work", new[] { "compile" }, Array.Empty<string>(), "compile-a",
+                "session-a");
+            string sameRetry = service.EnqueueEditorAccess("codex", Sha,
+                "Changed retry payload", new[] { "playmode" }, Array.Empty<string>(), "compile-a",
+                "session-a");
+            string secondRequest = service.EnqueueEditorAccess("codex", Sha, "Open Play Mode",
+                new[] { "playmode" }, new[] { "Assets/FeatureB" }, sessionId: "session-b");
+
+            Assert.That(firstRequest, Is.Not.EqualTo(secondRequest));
+            Assert.That(idempotentRetry, Is.EqualTo(sameRetry));
+            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State
+                .FindEditorAccessRequest(firstRequest).BaseHeadSha, Is.Null);
+
+            CoordinationException outOfOrder = Assert.Throws<CoordinationException>(() =>
+                service.AcquireEditorAccess("codex", secondRequest, "session-b"));
+            Assert.That(outOfOrder.Code, Is.EqualTo("request_not_next"));
+
+            EditorAccessRequest active = service.AcquireEditorAccess("codex", firstRequest, "session-a");
+            Assert.That(active.State, Is.EqualTo(EditorAccessStates.Active));
+            service.FinishEditorAccess("codex", firstRequest, "compiled", "session-a");
+            CoordinationException completedCancel = Assert.Throws<CoordinationException>(() =>
+                service.CancelEditorAccessRequest("codex", firstRequest, "too late", "session-a"));
+            Assert.That(completedCancel.Code, Is.EqualTo("request_not_cancelable"));
+
+            active = service.AcquireEditorAccess("codex", idempotentRetry, "session-a");
+            Assert.That(active.RequestId, Is.EqualTo(idempotentRetry));
+            service.CancelEditorAccessRequest("codex", idempotentRetry, "not needed", "session-a");
+
+            active = service.AcquireEditorAccess("codex", secondRequest, "session-b");
+            Assert.That(active.SessionId, Is.EqualTo("session-b"));
+            service.FinishEditorAccess("codex", secondRequest, null, "session-b");
+
+            service.FinishWork("codex", "session-a");
+            service.FinishWork("codex", "session-b");
+            Assert.That(store.HasCoordinationState, Is.False);
+        }
+
+        [Test]
+        public void EditorAccessAndExactShaValidationLeasesAreMutuallyExclusive()
+        {
+            string validationWorktree = CreateAdditionalWorktree("validation-worker");
+            service.BeginWork("access-worker", CoordinationRoles.Worker, workerWorktree, Sha, "access",
+                new[] { "Assets/Access" });
+            service.BeginWork("validation-worker", CoordinationRoles.Worker, validationWorktree, Sha,
+                "validation", new[] { "Assets/Validation" });
+            service.BeginWork("integrator", CoordinationRoles.Integrator, repositoryRoot, Sha, "integrate",
+                Array.Empty<string>());
+
+            string accessRequest = service.EnqueueEditorAccess("access-worker", null, "compile",
+                new[] { "compile" }, new[] { "Assets/Access" });
+            string validationRequest = service.EnqueueValidation("validation-worker", Sha, "validate",
+                Array.Empty<string>(), Array.Empty<string>());
+            service.AcquireEditorAccess("access-worker", accessRequest);
+
+            CoordinationException validationBlocked = Assert.Throws<CoordinationException>(() =>
+                service.AcquireValidation("integrator", validationRequest, Sha));
+            Assert.That(validationBlocked.Code, Is.EqualTo("editor_access_busy"));
+
+            service.FinishEditorAccess("access-worker", accessRequest, null);
+            service.AcquireValidation("integrator", validationRequest, Sha);
+            string secondAccessRequest = service.EnqueueEditorAccess("access-worker", null, "console",
+                new[] { "console" }, Array.Empty<string>());
+
+            CoordinationException accessBlocked = Assert.Throws<CoordinationException>(() =>
+                service.AcquireEditorAccess("access-worker", secondAccessRequest));
+            Assert.That(accessBlocked.Code, Is.EqualTo("validation_busy"));
+        }
+
+        [Test]
         public void ValidationIsSerialAndStateDisappearsAfterAllWorkFinishes()
         {
             service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "candidate",

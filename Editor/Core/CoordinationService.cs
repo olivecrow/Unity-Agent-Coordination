@@ -9,6 +9,7 @@ namespace Olivecrow.UnityAgentCoordination
     {
         private static readonly TimeSpan AgentStaleAfter = TimeSpan.FromMinutes(45);
         private static readonly TimeSpan QueueStaleAfter = TimeSpan.FromHours(4);
+        private static readonly TimeSpan EditorAccessStaleAfter = TimeSpan.FromMinutes(45);
         private static readonly TimeSpan ValidationStaleAfter = TimeSpan.FromMinutes(45);
         private readonly CoordinationStore store;
 
@@ -20,9 +21,12 @@ namespace Olivecrow.UnityAgentCoordination
         public CoordinationStore Store => store;
 
         public CoordinationSnapshot GetStatus(IEnumerable<string> proposedScopes, string requestingAgentId,
-            string editorSessionId)
+            string editorSessionId, string requestingSessionId = null)
         {
             List<string> normalizedScopes = NormalizeScopes(proposedScopes).ToList();
+            string normalizedRequestingSession = string.IsNullOrWhiteSpace(requestingSessionId)
+                ? requestingAgentId?.Trim()
+                : requestingSessionId.Trim();
             CoordinationState state = store.Mutate(current =>
             {
                 PruneStale(current);
@@ -35,14 +39,15 @@ namespace Olivecrow.UnityAgentCoordination
                 EditorOwner = owner,
                 IsCoordinatorEditor = owner != null && owner.SessionId == editorSessionId,
                 ConflictingClaims = state.Claims.Where(claim =>
-                        claim.AgentId != requestingAgentId &&
+                        claim.SessionId != normalizedRequestingSession &&
                         normalizedScopes.Any(scope => ScopesOverlap(scope, claim.Scope)))
                     .ToList()
             };
         }
 
         public AgentRecord BeginWork(string agentId, string role, string worktreePath, string headSha,
-            string summary, IEnumerable<string> scopes, string workKind = null, string phase = null)
+            string summary, IEnumerable<string> scopes, string workKind = null, string phase = null,
+            string sessionId = null)
         {
             RequireValue(agentId, "agent_id");
             RequireValue(role, "role");
@@ -52,6 +57,7 @@ namespace Olivecrow.UnityAgentCoordination
                 throw new CoordinationException("invalid_role", "role must be worker or integrator.");
             }
 
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             string fullWorktreePath = Path.GetFullPath(worktreePath);
             if (RepositoryIdentity.ResolveRepositoryId(fullWorktreePath) != store.RepositoryId)
             {
@@ -64,7 +70,7 @@ namespace Olivecrow.UnityAgentCoordination
             return store.Mutate(state =>
             {
                 PruneStale(state);
-                AgentRecord existing = FindAgent(state, agentId, false);
+                AgentRecord existing = FindAgent(state, agentId, resolvedSessionId, false);
                 if (existing != null && existing.Role != role)
                 {
                     throw new CoordinationException("role_changed", "The role of a registered agent cannot change.");
@@ -80,7 +86,7 @@ namespace Olivecrow.UnityAgentCoordination
                     }
 
                     AgentRecord otherIntegrator = state.Agents.FirstOrDefault(agent =>
-                        agent.Role == CoordinationRoles.Integrator && agent.AgentId != agentId);
+                        agent.Role == CoordinationRoles.Integrator && agent.SessionId != resolvedSessionId);
                     if (otherIntegrator != null)
                     {
                         throw new CoordinationException("integrator_exists",
@@ -88,13 +94,16 @@ namespace Olivecrow.UnityAgentCoordination
                     }
                 }
 
-                EnsureScopesAvailable(state, agentId, normalizedScopes);
+                EnsureScopesAvailable(state, resolvedSessionId, normalizedScopes);
                 DateTime now = DateTime.UtcNow;
                 AgentRecord agentRecord = existing ?? new AgentRecord
                 {
                     AgentId = agentId,
+                    SessionId = resolvedSessionId,
                     StartedUtc = now
                 };
+                agentRecord.AgentId = agentId;
+                agentRecord.SessionId = resolvedSessionId;
                 agentRecord.Role = role;
                 agentRecord.WorktreePath = fullWorktreePath;
                 agentRecord.HeadSha = normalizedHead;
@@ -109,18 +118,19 @@ namespace Olivecrow.UnityAgentCoordination
                     state.Agents.Add(agentRecord);
                 }
 
-                AddClaims(state, agentId, normalizedScopes, now);
+                AddClaims(state, agentId, resolvedSessionId, normalizedScopes, now);
                 return agentRecord;
             });
         }
 
         public AgentRecord Heartbeat(string agentId, string headSha, string summary, string phase = null,
-            string workKind = null)
+            string workKind = null, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             return store.Mutate(state =>
             {
                 PruneStale(state);
-                AgentRecord agent = FindAgent(state, agentId, true);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
                 if (!string.IsNullOrWhiteSpace(headSha))
                 {
                     agent.HeadSha = NormalizeSha(headSha);
@@ -142,7 +152,14 @@ namespace Olivecrow.UnityAgentCoordination
                 }
 
                 agent.HeartbeatUtc = DateTime.UtcNow;
-                if (state.ActiveValidation != null && state.ActiveValidation.IntegratorAgentId == agentId)
+                if (state.ActiveEditorAccess != null &&
+                    state.ActiveEditorAccess.SessionId == resolvedSessionId)
+                {
+                    state.ActiveEditorAccess.HeartbeatUtc = DateTime.UtcNow;
+                }
+
+                if (state.ActiveValidation != null &&
+                    state.ActiveValidation.IntegratorSessionId == resolvedSessionId)
                 {
                     state.ActiveValidation.HeartbeatUtc = DateTime.UtcNow;
                 }
@@ -151,8 +168,9 @@ namespace Olivecrow.UnityAgentCoordination
             });
         }
 
-        public List<ScopeClaim> Claim(string agentId, IEnumerable<string> scopes)
+        public List<ScopeClaim> Claim(string agentId, IEnumerable<string> scopes, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             List<string> normalizedScopes = NormalizeScopes(scopes).ToList();
             if (normalizedScopes.Count == 0)
             {
@@ -162,43 +180,240 @@ namespace Olivecrow.UnityAgentCoordination
             return store.Mutate(state =>
             {
                 PruneStale(state);
-                FindAgent(state, agentId, true);
-                EnsureScopesAvailable(state, agentId, normalizedScopes);
-                AddClaims(state, agentId, normalizedScopes, DateTime.UtcNow);
-                return state.Claims.Where(item => item.AgentId == agentId).ToList();
+                FindAgent(state, agentId, resolvedSessionId, true);
+                EnsureScopesAvailable(state, resolvedSessionId, normalizedScopes);
+                AddClaims(state, agentId, resolvedSessionId, normalizedScopes, DateTime.UtcNow);
+                return state.Claims.Where(item => item.SessionId == resolvedSessionId).ToList();
             });
         }
 
-        public void ReleaseClaims(string agentId, IEnumerable<string> scopes)
+        public void ReleaseClaims(string agentId, IEnumerable<string> scopes, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             List<string> normalizedScopes = NormalizeScopes(scopes).ToList();
             store.Mutate(state =>
             {
                 PruneStale(state);
-                FindAgent(state, agentId, true);
-                state.Claims.RemoveAll(claim => claim.AgentId == agentId &&
+                FindAgent(state, agentId, resolvedSessionId, true);
+                state.Claims.RemoveAll(claim => claim.SessionId == resolvedSessionId &&
                     (normalizedScopes.Count == 0 || normalizedScopes.Contains(claim.Scope)));
                 return true;
             });
         }
 
-        public string EnqueueValidation(string agentId, string candidateSha, string summary,
-            IEnumerable<string> testModes, IEnumerable<string> manualChecks)
+        public string EnqueueEditorAccess(string agentId, string baseHeadSha, string summary,
+            IEnumerable<string> operations, IEnumerable<string> scopes, string requestKey = null,
+            string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
+            string normalizedHead = NormalizeOptionalSha(baseHeadSha);
+            string normalizedRequestKey = NormalizeOptionalText(requestKey, null);
+            List<string> normalizedOperations = NormalizeTextList(operations).ToList();
+            List<string> normalizedScopes = NormalizeScopes(scopes).ToList();
+            if (normalizedOperations.Count == 0)
+            {
+                throw new CoordinationException("operation_required",
+                    "At least one Editor operation is required.");
+            }
+
+            return store.Mutate(state =>
+            {
+                PruneStale(state);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
+                if (normalizedRequestKey != null)
+                {
+                    EditorAccessRequest existing = state.EditorAccessRequests.FirstOrDefault(request =>
+                        request.SessionId == resolvedSessionId && request.RequestKey == normalizedRequestKey);
+                    if (existing != null)
+                    {
+                        return existing.RequestId;
+                    }
+                }
+
+                EnsureScopesClaimed(state, resolvedSessionId, normalizedScopes);
+
+                DateTime now = DateTime.UtcNow;
+                EditorAccessRequest request = new EditorAccessRequest
+                {
+                    RequestId = Guid.NewGuid().ToString("N"),
+                    RequestKey = normalizedRequestKey,
+                    AgentId = agentId,
+                    SessionId = resolvedSessionId,
+                    BaseHeadSha = normalizedHead,
+                    Summary = summary ?? agent.Summary ?? string.Empty,
+                    State = EditorAccessStates.Queued,
+                    Operations = normalizedOperations,
+                    Scopes = normalizedScopes,
+                    EnqueuedUtc = now,
+                    UpdatedUtc = now
+                };
+                state.EditorAccessRequests.Add(request);
+                agent.Phase = AgentWorkPhases.WaitingEditorAccess;
+                agent.HeartbeatUtc = now;
+                return request.RequestId;
+            });
+        }
+
+        public EditorAccessRequest AcquireEditorAccess(string agentId, string requestId = null,
+            string sessionId = null)
+        {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
+            return store.Mutate(state =>
+            {
+                PruneStale(state);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
+                if (state.ActiveValidation != null)
+                {
+                    throw new CoordinationException("validation_busy",
+                        $"Validation is already active: {state.ActiveValidation.RequestId}");
+                }
+
+                if (state.ActiveEditorAccess != null)
+                {
+                    throw new CoordinationException("editor_access_busy",
+                        $"Editor access is already active: {state.ActiveEditorAccess.RequestId}");
+                }
+
+                EditorAccessRequest next = state.EditorAccessRequests
+                    .Where(item => item.State == EditorAccessStates.Queued)
+                    .OrderBy(item => item.EnqueuedUtc)
+                    .ThenBy(item => item.RequestId, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                EditorAccessRequest request = string.IsNullOrWhiteSpace(requestId)
+                    ? next
+                    : state.FindEditorAccessRequest(requestId);
+                if (request == null || request.State != EditorAccessStates.Queued)
+                {
+                    throw new CoordinationException("request_not_queued",
+                        "No queued Editor access request was found.");
+                }
+
+                if (next != null && request.RequestId != next.RequestId)
+                {
+                    throw new CoordinationException("request_not_next",
+                        $"Editor access request {next.RequestId} is ahead in the queue.");
+                }
+
+                if (request.SessionId != resolvedSessionId)
+                {
+                    throw new CoordinationException("not_request_owner",
+                        "Only the session that queued this request can acquire it.");
+                }
+
+                DateTime now = DateTime.UtcNow;
+                request.State = EditorAccessStates.Active;
+                request.UpdatedUtc = now;
+                agent.Phase = AgentWorkPhases.UsingEditor;
+                agent.HeartbeatUtc = now;
+                state.ActiveEditorAccess = new ActiveEditorAccess
+                {
+                    RequestId = request.RequestId,
+                    AgentId = agentId,
+                    SessionId = resolvedSessionId,
+                    AcquiredUtc = now,
+                    HeartbeatUtc = now
+                };
+                return request;
+            });
+        }
+
+        public EditorAccessRequest FinishEditorAccess(string agentId, string requestId, string message,
+            string sessionId = null)
+        {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
+            return store.Mutate(state =>
+            {
+                PruneStale(state);
+                FindAgent(state, agentId, resolvedSessionId, true);
+                ActiveEditorAccess active = RequireActiveEditorAccess(state, requestId);
+                if (active.SessionId != resolvedSessionId)
+                {
+                    throw new CoordinationException("not_lease_owner",
+                        "Only the session holding the Editor access lease can finish it.");
+                }
+
+                DateTime now = DateTime.UtcNow;
+                EditorAccessRequest request = state.FindEditorAccessRequest(requestId);
+                request.State = EditorAccessStates.Completed;
+                request.Message = message ?? "Editor access completed";
+                request.UpdatedUtc = now;
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, false);
+                if (agent != null)
+                {
+                    agent.Phase = AgentWorkPhases.Working;
+                    agent.HeartbeatUtc = now;
+                }
+
+                state.ActiveEditorAccess = null;
+                return request;
+            });
+        }
+
+        public void CancelEditorAccessRequest(string agentId, string requestId, string message,
+            string sessionId = null)
+        {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
+            store.Mutate(state =>
+            {
+                PruneStale(state);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
+                EditorAccessRequest request = state.FindEditorAccessRequest(requestId);
+                if (request == null)
+                {
+                    throw new CoordinationException("request_missing",
+                        "The Editor access request was not found.");
+                }
+
+                bool ownsRequest = request.SessionId == resolvedSessionId;
+                if (!ownsRequest && agent.Role != CoordinationRoles.Integrator)
+                {
+                    throw new CoordinationException("not_request_owner",
+                        "This session cannot cancel the Editor access request.");
+                }
+
+                if (request.State != EditorAccessStates.Queued && request.State != EditorAccessStates.Active)
+                {
+                    throw new CoordinationException("request_not_cancelable",
+                        "Only a queued or active Editor access request can be canceled.");
+                }
+
+                request.State = EditorAccessStates.Canceled;
+                request.Message = message ?? "Canceled";
+                request.UpdatedUtc = DateTime.UtcNow;
+                AgentRecord requester = FindAgent(state, request.AgentId, request.SessionId, false);
+                if (requester != null)
+                {
+                    requester.Phase = AgentWorkPhases.Working;
+                    requester.HeartbeatUtc = DateTime.UtcNow;
+                }
+
+                if (state.ActiveEditorAccess != null && state.ActiveEditorAccess.RequestId == requestId)
+                {
+                    state.ActiveEditorAccess = null;
+                }
+
+                return true;
+            });
+        }
+
+        public string EnqueueValidation(string agentId, string candidateSha, string summary,
+            IEnumerable<string> testModes, IEnumerable<string> manualChecks, string sessionId = null)
+        {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             string normalizedCandidate = NormalizeSha(candidateSha);
             List<string> modes = NormalizeTestModes(testModes).ToList();
             List<string> checks = NormalizeTextList(manualChecks).ToList();
             return store.Mutate(state =>
             {
                 PruneStale(state);
-                AgentRecord agent = FindAgent(state, agentId, true);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
                 if (agent.Role != CoordinationRoles.Worker)
                 {
                     throw new CoordinationException("worker_required", "Only a worker can enqueue validation.");
                 }
 
                 ValidationRequest duplicate = state.ValidationRequests.FirstOrDefault(request =>
-                    request.AgentId == agentId && request.CandidateSha == normalizedCandidate &&
+                    request.SessionId == resolvedSessionId && request.CandidateSha == normalizedCandidate &&
                     (request.State == ValidationStates.Queued || request.State == ValidationStates.Running));
                 if (duplicate != null)
                 {
@@ -210,6 +425,7 @@ namespace Olivecrow.UnityAgentCoordination
                 {
                     RequestId = Guid.NewGuid().ToString("N"),
                     AgentId = agentId,
+                    SessionId = resolvedSessionId,
                     CandidateSha = normalizedCandidate,
                     Summary = summary ?? agent.Summary ?? string.Empty,
                     State = ValidationStates.Queued,
@@ -226,13 +442,14 @@ namespace Olivecrow.UnityAgentCoordination
         }
 
         public ValidationRequest AcquireValidation(string integratorAgentId, string requestId,
-            string testedHeadSha)
+            string testedHeadSha, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(integratorAgentId, sessionId);
             string normalizedHead = NormalizeSha(testedHeadSha);
             return store.Mutate(state =>
             {
                 PruneStale(state);
-                AgentRecord integrator = FindAgent(state, integratorAgentId, true);
+                AgentRecord integrator = FindAgent(state, integratorAgentId, resolvedSessionId, true);
                 if (integrator.Role != CoordinationRoles.Integrator)
                 {
                     throw new CoordinationException("integrator_required", "Only an integrator can acquire a validation lease.");
@@ -242,6 +459,12 @@ namespace Olivecrow.UnityAgentCoordination
                 {
                     throw new CoordinationException("validation_busy",
                         $"Validation is already active: {state.ActiveValidation.RequestId}");
+                }
+
+                if (state.ActiveEditorAccess != null)
+                {
+                    throw new CoordinationException("editor_access_busy",
+                        $"Editor access is already active: {state.ActiveEditorAccess.RequestId}");
                 }
 
                 ValidationRequest request = string.IsNullOrWhiteSpace(requestId)
@@ -274,6 +497,7 @@ namespace Olivecrow.UnityAgentCoordination
                 {
                     RequestId = request.RequestId,
                     IntegratorAgentId = integratorAgentId,
+                    IntegratorSessionId = resolvedSessionId,
                     TestedHeadSha = normalizedHead,
                     Phase = ValidationPhases.Compiling,
                     AcquiredUtc = now,
@@ -342,13 +566,14 @@ namespace Olivecrow.UnityAgentCoordination
         }
 
         public ValidationRequest FinishValidation(string integratorAgentId, string requestId, bool passed,
-            string message)
+            string message, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(integratorAgentId, sessionId);
             return store.Mutate(state =>
             {
                 PruneStale(state);
                 ActiveValidation active = RequireActive(state, requestId);
-                if (active.IntegratorAgentId != integratorAgentId)
+                if (active.IntegratorSessionId != resolvedSessionId)
                 {
                     throw new CoordinationException("not_lease_owner", "Only the integrator holding the validation lease can finish it.");
                 }
@@ -365,14 +590,14 @@ namespace Olivecrow.UnityAgentCoordination
                 request.Phase = null;
                 request.Message = message ?? (effectivePass ? "Validation passed" : "Validation failed");
                 request.UpdatedUtc = DateTime.UtcNow;
-                AgentRecord integrator = FindAgent(state, integratorAgentId, false);
+                AgentRecord integrator = FindAgent(state, integratorAgentId, resolvedSessionId, false);
                 if (integrator != null)
                 {
                     integrator.Phase = AgentWorkPhases.Finalizing;
                     integrator.HeartbeatUtc = DateTime.UtcNow;
                 }
 
-                AgentRecord requester = FindAgent(state, request.AgentId, false);
+                AgentRecord requester = FindAgent(state, request.AgentId, request.SessionId, false);
                 if (requester != null)
                 {
                     requester.Phase = effectivePass ? AgentWorkPhases.Finalizing : AgentWorkPhases.Working;
@@ -384,21 +609,23 @@ namespace Olivecrow.UnityAgentCoordination
             });
         }
 
-        public void CancelValidationRequest(string agentId, string requestId, string message)
+        public void CancelValidationRequest(string agentId, string requestId, string message,
+            string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             store.Mutate(state =>
             {
                 PruneStale(state);
-                AgentRecord agent = FindAgent(state, agentId, true);
+                AgentRecord agent = FindAgent(state, agentId, resolvedSessionId, true);
                 ValidationRequest request = state.FindRequest(requestId);
                 if (request == null)
                 {
                     throw new CoordinationException("request_missing", "The validation request was not found.");
                 }
 
-                bool ownsRequest = request.AgentId == agentId;
+                bool ownsRequest = request.SessionId == resolvedSessionId;
                 bool ownsLease = state.ActiveValidation != null &&
-                                 state.ActiveValidation.IntegratorAgentId == agentId &&
+                                 state.ActiveValidation.IntegratorSessionId == resolvedSessionId &&
                                  state.ActiveValidation.RequestId == requestId;
                 if (!ownsRequest && !ownsLease && agent.Role != CoordinationRoles.Integrator)
                 {
@@ -409,7 +636,7 @@ namespace Olivecrow.UnityAgentCoordination
                 request.Phase = null;
                 request.Message = message ?? "Canceled";
                 request.UpdatedUtc = DateTime.UtcNow;
-                AgentRecord requester = FindAgent(state, request.AgentId, false);
+                AgentRecord requester = FindAgent(state, request.AgentId, request.SessionId, false);
                 if (requester != null)
                 {
                     requester.Phase = AgentWorkPhases.Working;
@@ -418,7 +645,8 @@ namespace Olivecrow.UnityAgentCoordination
 
                 if (state.ActiveValidation != null && state.ActiveValidation.RequestId == requestId)
                 {
-                    AgentRecord integrator = FindAgent(state, state.ActiveValidation.IntegratorAgentId, false);
+                    AgentRecord integrator = FindAgent(state, state.ActiveValidation.IntegratorAgentId,
+                        state.ActiveValidation.IntegratorSessionId, false);
                     if (integrator != null)
                     {
                         integrator.Phase = AgentWorkPhases.Finalizing;
@@ -432,27 +660,48 @@ namespace Olivecrow.UnityAgentCoordination
             });
         }
 
-        public void FinishWork(string agentId)
+        public void FinishWork(string agentId, string sessionId = null)
         {
+            string resolvedSessionId = ResolveSessionId(agentId, sessionId);
             store.Mutate(state =>
             {
                 PruneStale(state);
-                FindAgent(state, agentId, true);
-                if (state.ActiveValidation != null && state.ActiveValidation.IntegratorAgentId == agentId)
+                FindAgent(state, agentId, resolvedSessionId, true);
+                if (state.ActiveEditorAccess != null &&
+                    state.ActiveEditorAccess.SessionId == resolvedSessionId)
+                {
+                    throw new CoordinationException("active_editor_access",
+                        "Finish or cancel the active Editor access first.");
+                }
+
+                bool hasPendingEditorAccess = state.EditorAccessRequests.Any(request =>
+                    request.SessionId == resolvedSessionId &&
+                    (request.State == EditorAccessStates.Queued || request.State == EditorAccessStates.Active));
+                if (hasPendingEditorAccess)
+                {
+                    throw new CoordinationException("pending_editor_access",
+                        "A queued or active Editor access request still exists.");
+                }
+
+                if (state.ActiveValidation != null &&
+                    state.ActiveValidation.IntegratorSessionId == resolvedSessionId)
                 {
                     throw new CoordinationException("active_validation", "Finish or cancel the active validation first.");
                 }
 
-                bool hasPendingRequest = state.ValidationRequests.Any(request => request.AgentId == agentId &&
+                bool hasPendingRequest = state.ValidationRequests.Any(request =>
+                    request.SessionId == resolvedSessionId &&
                     (request.State == ValidationStates.Queued || request.State == ValidationStates.Running));
                 if (hasPendingRequest)
                 {
                     throw new CoordinationException("pending_validation", "A queued or running validation request still exists.");
                 }
 
-                state.Claims.RemoveAll(claim => claim.AgentId == agentId);
-                state.Agents.RemoveAll(agent => agent.AgentId == agentId);
-                state.ValidationRequests.RemoveAll(request => request.AgentId == agentId &&
+                state.Claims.RemoveAll(claim => claim.SessionId == resolvedSessionId);
+                state.Agents.RemoveAll(agent => agent.SessionId == resolvedSessionId);
+                state.EditorAccessRequests.RemoveAll(request => request.SessionId == resolvedSessionId &&
+                    request.State != EditorAccessStates.Queued && request.State != EditorAccessStates.Active);
+                state.ValidationRequests.RemoveAll(request => request.SessionId == resolvedSessionId &&
                     request.State != ValidationStates.Queued && request.State != ValidationStates.Running);
                 return true;
             });
@@ -532,23 +781,58 @@ namespace Olivecrow.UnityAgentCoordination
             return state.ActiveValidation;
         }
 
+        private static ActiveEditorAccess RequireActiveEditorAccess(CoordinationState state, string requestId)
+        {
+            if (state.ActiveEditorAccess == null || state.ActiveEditorAccess.RequestId != requestId)
+            {
+                throw new CoordinationException("editor_access_not_active",
+                    "This is not the active Editor access lease.");
+            }
+
+            if (state.FindEditorAccessRequest(requestId) == null)
+            {
+                throw new CoordinationException("request_missing",
+                    "The active Editor access request record is missing.");
+            }
+
+            return state.ActiveEditorAccess;
+        }
+
         private static void PruneStale(CoordinationState state)
         {
             DateTime now = DateTime.UtcNow;
-            HashSet<string> staleAgents = new HashSet<string>(state.Agents
+            HashSet<string> staleSessions = new HashSet<string>(state.Agents
                 .Where(agent => now - agent.HeartbeatUtc > AgentStaleAfter)
-                .Select(agent => agent.AgentId));
-            if (staleAgents.Count > 0)
+                .Select(agent => agent.SessionId));
+            if (staleSessions.Count > 0)
             {
-                state.Agents.RemoveAll(agent => staleAgents.Contains(agent.AgentId));
-                state.Claims.RemoveAll(claim => staleAgents.Contains(claim.AgentId));
-                state.ValidationRequests.RemoveAll(request => staleAgents.Contains(request.AgentId) &&
+                state.Agents.RemoveAll(agent => staleSessions.Contains(agent.SessionId));
+                state.Claims.RemoveAll(claim => staleSessions.Contains(claim.SessionId));
+                state.EditorAccessRequests.RemoveAll(request => staleSessions.Contains(request.SessionId) &&
+                    request.State == EditorAccessStates.Queued);
+                state.ValidationRequests.RemoveAll(request => staleSessions.Contains(request.SessionId) &&
                     request.State == ValidationStates.Queued);
+            }
+
+            if (state.ActiveEditorAccess != null &&
+                (now - state.ActiveEditorAccess.HeartbeatUtc > EditorAccessStaleAfter ||
+                 !state.Agents.Any(agent => agent.SessionId == state.ActiveEditorAccess.SessionId)))
+            {
+                EditorAccessRequest activeRequest =
+                    state.FindEditorAccessRequest(state.ActiveEditorAccess.RequestId);
+                if (activeRequest != null)
+                {
+                    activeRequest.State = EditorAccessStates.Expired;
+                    activeRequest.Message = "The Editor access lease heartbeat expired.";
+                    activeRequest.UpdatedUtc = now;
+                }
+
+                state.ActiveEditorAccess = null;
             }
 
             if (state.ActiveValidation != null &&
                 (now - state.ActiveValidation.HeartbeatUtc > ValidationStaleAfter ||
-                 !state.Agents.Any(agent => agent.AgentId == state.ActiveValidation.IntegratorAgentId)))
+                 !state.Agents.Any(agent => agent.SessionId == state.ActiveValidation.IntegratorSessionId)))
             {
                 ValidationRequest activeRequest = state.FindRequest(state.ActiveValidation.RequestId);
                 if (activeRequest != null)
@@ -564,14 +848,26 @@ namespace Olivecrow.UnityAgentCoordination
 
             state.ValidationRequests.RemoveAll(request =>
                 request.State == ValidationStates.Queued && now - request.UpdatedUtc > QueueStaleAfter);
+            state.EditorAccessRequests.RemoveAll(request =>
+                request.State == EditorAccessStates.Queued && now - request.UpdatedUtc > QueueStaleAfter);
+            state.EditorAccessRequests.RemoveAll(request =>
+                request.State != EditorAccessStates.Queued && request.State != EditorAccessStates.Active &&
+                !state.Agents.Any(agent => agent.SessionId == request.SessionId));
             state.ValidationRequests.RemoveAll(request =>
                 request.State != ValidationStates.Queued && request.State != ValidationStates.Running &&
-                !state.Agents.Any(agent => agent.AgentId == request.AgentId));
+                !state.Agents.Any(agent => agent.SessionId == request.SessionId));
         }
 
-        private static AgentRecord FindAgent(CoordinationState state, string agentId, bool required)
+        private static AgentRecord FindAgent(CoordinationState state, string agentId, string sessionId,
+            bool required)
         {
-            AgentRecord agent = state.Agents.FirstOrDefault(item => item.AgentId == agentId);
+            AgentRecord agent = state.Agents.FirstOrDefault(item => item.SessionId == sessionId);
+            if (agent != null && agent.AgentId != agentId)
+            {
+                throw new CoordinationException("session_agent_mismatch",
+                    $"Session '{sessionId}' is registered to another agent.");
+            }
+
             if (required && agent == null)
             {
                 throw new CoordinationException("agent_missing", "Register the work with begin_work first.");
@@ -580,10 +876,10 @@ namespace Olivecrow.UnityAgentCoordination
             return agent;
         }
 
-        private static void EnsureScopesAvailable(CoordinationState state, string agentId,
+        private static void EnsureScopesAvailable(CoordinationState state, string sessionId,
             IEnumerable<string> scopes)
         {
-            ScopeClaim conflict = state.Claims.FirstOrDefault(claim => claim.AgentId != agentId &&
+            ScopeClaim conflict = state.Claims.FirstOrDefault(claim => claim.SessionId != sessionId &&
                 scopes.Any(scope => ScopesOverlap(scope, claim.Scope)));
             if (conflict != null)
             {
@@ -592,14 +888,36 @@ namespace Olivecrow.UnityAgentCoordination
             }
         }
 
-        private static void AddClaims(CoordinationState state, string agentId, IEnumerable<string> scopes,
-            DateTime now)
+        private static void EnsureScopesClaimed(CoordinationState state, string sessionId,
+            IEnumerable<string> scopes)
         {
             foreach (string scope in scopes)
             {
-                if (state.Claims.All(item => item.AgentId != agentId || item.Scope != scope))
+                bool covered = state.Claims.Any(claim => claim.SessionId == sessionId &&
+                    (claim.Scope == "." || claim.Scope == scope ||
+                     scope.StartsWith(claim.Scope + "/", StringComparison.Ordinal)));
+                if (!covered)
                 {
-                    state.Claims.Add(new ScopeClaim { AgentId = agentId, Scope = scope, ClaimedUtc = now });
+                    throw new CoordinationException("scope_not_claimed",
+                        $"Editor access scope '{scope}' is not claimed by this session.");
+                }
+            }
+        }
+
+        private static void AddClaims(CoordinationState state, string agentId, string sessionId,
+            IEnumerable<string> scopes, DateTime now)
+        {
+            foreach (string scope in scopes)
+            {
+                if (state.Claims.All(item => item.SessionId != sessionId || item.Scope != scope))
+                {
+                    state.Claims.Add(new ScopeClaim
+                    {
+                        AgentId = agentId,
+                        SessionId = sessionId,
+                        Scope = scope,
+                        ClaimedUtc = now
+                    });
                 }
             }
         }
@@ -654,6 +972,17 @@ namespace Olivecrow.UnityAgentCoordination
         private static string NormalizeOptionalText(string value, string fallback)
         {
             return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        }
+
+        private static string NormalizeOptionalSha(string sha)
+        {
+            return string.IsNullOrWhiteSpace(sha) ? null : NormalizeSha(sha);
+        }
+
+        private static string ResolveSessionId(string agentId, string sessionId)
+        {
+            RequireValue(agentId, "agent_id");
+            return string.IsNullOrWhiteSpace(sessionId) ? agentId.Trim() : sessionId.Trim();
         }
 
         private static string NormalizeSha(string sha)

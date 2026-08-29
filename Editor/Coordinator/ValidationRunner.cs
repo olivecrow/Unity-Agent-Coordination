@@ -29,7 +29,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
         }
 
         public static ValidationRequest AcquireAndStart(string integratorAgentId, string requestId,
-            string testedHeadSha)
+            string testedHeadSha, string sessionId = null)
         {
             AgentCoordinationEditorContext.RequireCoordinatorEditor();
             if (EditorApplication.isCompiling || EditorApplication.isUpdating ||
@@ -54,7 +54,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             }
 
             ValidationRequest request = AgentCoordinationEditorContext.Service.AcquireValidation(
-                integratorAgentId, requestId, inspection.HeadSha);
+                integratorAgentId, requestId, inspection.HeadSha, sessionId);
             SessionState.SetString(RequestedCompilationKey, request.RequestId);
             RefreshAssetsAndRequestCompilation(
                 options => AssetDatabase.Refresh(options),

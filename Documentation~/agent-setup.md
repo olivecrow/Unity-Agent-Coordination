@@ -6,7 +6,7 @@ The package needs both an agent operating rule and a callable Unity transport ad
 
 ## Codex
 
-Copy or link `Skills~/unity-agent-coordination` into a Codex skill location, then mention the skill from the project's `AGENTS.md`. The included skill defines when coordination applies, package bootstrap, the canonical Editor policy, validation lifecycle, bounded waits, and cleanup.
+Copy or link `Skills~/unity-agent-coordination` into a Codex skill location, then mention the skill from the project's `AGENTS.md`. The included skill defines when coordination applies, package bootstrap, session identity, commit-optional Editor access, exact-SHA validation, bounded waits, and cleanup.
 
 ## Claude Code and Other Agents
 
@@ -15,9 +15,10 @@ Add a short routing rule to the project's agent instructions and link this packa
 ```markdown
 For work that uses or can trigger the shared Unity Editor, read the Unity Agent
 Coordination package instructions before the first Editor-affecting action. Call
-the coordination adapter with action=status, honor path claims and the active
-validation lease, and call finish_work when done. Do not activate coordination
-for Git-only or filesystem-only work. Never edit coordination state files.
+the coordination adapter with action=status, register a unique session, honor path
+claims, and queue Editor access before stateful operations. Use exact-SHA validation
+only for clean committed candidates and call finish_work when done. Do not activate
+coordination for Git-only or filesystem-only work. Never edit coordination state files.
 ```
 
 Use the host's native guidance file, such as `AGENTS.md`, `CLAUDE.md`, or an equivalent project instruction file. The wording may change, but preserve the activation boundary and cleanup contract.
@@ -44,3 +45,5 @@ Before relying on the instructions, verify that the selected Unity MCP exposes a
 - If no route exists, stop and add an adapter. Do not read or write `%LOCALAPPDATA%` state directly.
 
 The command schema is documented in [Integration Protocol](mcp-protocol.md).
+
+Adapters should expose the full session and Editor access fields. Older installed package versions may not recognize `session_id` or the `*_editor_access` actions; agents must feature-detect them from the action schema or the status state's reported schema version (`State.SchemaVersion` in the bundled router response) and must not silently treat the validation queue as a general pre-commit access queue.

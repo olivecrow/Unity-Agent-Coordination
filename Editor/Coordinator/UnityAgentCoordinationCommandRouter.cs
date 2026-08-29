@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 using UnityEngine;
 
 namespace Olivecrow.UnityAgentCoordination.Editor
@@ -72,41 +73,70 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 {
                     case "status":
                         data = service.GetStatus(StringArray(parameters, "scopes"),
-                            OptionalString(parameters, "agent_id"), AgentCoordinationEditorContext.SessionId);
+                            OptionalString(parameters, "agent_id"), AgentCoordinationEditorContext.SessionId,
+                            OptionalString(parameters, "session_id"));
                         break;
                     case "begin_work":
                         data = service.BeginWork(RequiredString(parameters, "agent_id"),
                             RequiredString(parameters, "role"), RequiredString(parameters, "worktree_path"),
                             RequiredString(parameters, "head_sha"), OptionalString(parameters, "summary"),
                             StringArray(parameters, "scopes"), OptionalString(parameters, "work_kind"),
-                            OptionalString(parameters, "phase"));
+                            OptionalString(parameters, "phase"), OptionalString(parameters, "session_id"));
                         break;
                     case "heartbeat":
                         data = service.Heartbeat(RequiredString(parameters, "agent_id"),
                             OptionalString(parameters, "head_sha"), OptionalString(parameters, "summary"),
-                            OptionalString(parameters, "phase"), OptionalString(parameters, "work_kind"));
+                            OptionalString(parameters, "phase"), OptionalString(parameters, "work_kind"),
+                            OptionalString(parameters, "session_id"));
                         break;
                     case "claim":
                         data = service.Claim(RequiredString(parameters, "agent_id"),
-                            StringArray(parameters, "scopes"));
+                            StringArray(parameters, "scopes"), OptionalString(parameters, "session_id"));
                         break;
                     case "release_claims":
                         service.ReleaseClaims(RequiredString(parameters, "agent_id"),
-                            StringArray(parameters, "scopes"));
+                            StringArray(parameters, "scopes"), OptionalString(parameters, "session_id"));
                         data = service.GetStatus(Array.Empty<string>(), OptionalString(parameters, "agent_id"),
-                            AgentCoordinationEditorContext.SessionId);
+                            AgentCoordinationEditorContext.SessionId, OptionalString(parameters, "session_id"));
+                        break;
+                    case "enqueue_editor_access":
+                        data = new
+                        {
+                            request_id = service.EnqueueEditorAccess(RequiredString(parameters, "agent_id"),
+                                OptionalString(parameters, "base_head_sha"), OptionalString(parameters, "summary"),
+                                StringArray(parameters, "operations"), StringArray(parameters, "scopes"),
+                                OptionalString(parameters, "request_key"),
+                                OptionalString(parameters, "session_id"))
+                        };
+                        break;
+                    case "acquire_editor_access":
+                        data = AcquireEditorAccess(parameters, service);
+                        break;
+                    case "finish_editor_access":
+                        data = service.FinishEditorAccess(RequiredString(parameters, "agent_id"),
+                            RequiredString(parameters, "request_id"), OptionalString(parameters, "message"),
+                            OptionalString(parameters, "session_id"));
+                        break;
+                    case "cancel_editor_access":
+                        service.CancelEditorAccessRequest(RequiredString(parameters, "agent_id"),
+                            RequiredString(parameters, "request_id"), OptionalString(parameters, "message"),
+                            OptionalString(parameters, "session_id"));
+                        data = service.GetStatus(Array.Empty<string>(), OptionalString(parameters, "agent_id"),
+                            AgentCoordinationEditorContext.SessionId, OptionalString(parameters, "session_id"));
                         break;
                     case "enqueue_validation":
                         data = new
                         {
                             request_id = service.EnqueueValidation(RequiredString(parameters, "agent_id"),
                                 RequiredString(parameters, "candidate_sha"), OptionalString(parameters, "summary"),
-                                StringArray(parameters, "test_modes"), StringArray(parameters, "manual_checks"))
+                                StringArray(parameters, "test_modes"), StringArray(parameters, "manual_checks"),
+                                OptionalString(parameters, "session_id"))
                         };
                         break;
                     case "acquire_validation":
                         data = ValidationRunner.AcquireAndStart(RequiredString(parameters, "agent_id"),
-                            OptionalString(parameters, "request_id"), RequiredString(parameters, "candidate_sha"));
+                            OptionalString(parameters, "request_id"), RequiredString(parameters, "candidate_sha"),
+                            OptionalString(parameters, "session_id"));
                         break;
                     case "finish_validation":
                         if (ParameterToken(parameters, "passed") == null)
@@ -116,16 +146,18 @@ namespace Olivecrow.UnityAgentCoordination.Editor
 
                         data = service.FinishValidation(RequiredString(parameters, "agent_id"),
                             RequiredString(parameters, "request_id"), parameters.Value<bool>("passed"),
-                            OptionalString(parameters, "message"));
+                            OptionalString(parameters, "message"), OptionalString(parameters, "session_id"));
                         break;
                     case "cancel_validation":
                         service.CancelValidationRequest(RequiredString(parameters, "agent_id"),
-                            RequiredString(parameters, "request_id"), OptionalString(parameters, "message"));
+                            RequiredString(parameters, "request_id"), OptionalString(parameters, "message"),
+                            OptionalString(parameters, "session_id"));
                         data = service.GetStatus(Array.Empty<string>(), OptionalString(parameters, "agent_id"),
-                            AgentCoordinationEditorContext.SessionId);
+                            AgentCoordinationEditorContext.SessionId, OptionalString(parameters, "session_id"));
                         break;
                     case "finish_work":
-                        service.FinishWork(RequiredString(parameters, "agent_id"));
+                        service.FinishWork(RequiredString(parameters, "agent_id"),
+                            OptionalString(parameters, "session_id"));
                         data = service.GetStatus(Array.Empty<string>(), null,
                             AgentCoordinationEditorContext.SessionId);
                         break;
@@ -161,6 +193,20 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             }
         }
 
+        private static EditorAccessRequest AcquireEditorAccess(JObject parameters, CoordinationService service)
+        {
+            AgentCoordinationEditorContext.RequireCoordinatorEditor();
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating ||
+                EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                throw new CoordinationException("editor_busy",
+                    "Unity Editor is compiling, updating assets, or changing Play Mode state.");
+            }
+
+            return service.AcquireEditorAccess(RequiredString(parameters, "agent_id"),
+                OptionalString(parameters, "request_id"), OptionalString(parameters, "session_id"));
+        }
+
         private static void ClearAll(JObject parameters, CoordinationService service)
         {
             if (!parameters.Value<bool?>("confirm").GetValueOrDefault())
@@ -170,9 +216,11 @@ namespace Olivecrow.UnityAgentCoordination.Editor
 
             AgentCoordinationEditorContext.RequireCoordinatorEditor();
             string agentId = RequiredString(parameters, "agent_id");
+            string sessionId = ResolveSessionId(parameters, agentId);
             CoordinationSnapshot snapshot = service.GetStatus(Array.Empty<string>(), agentId,
-                AgentCoordinationEditorContext.SessionId);
+                AgentCoordinationEditorContext.SessionId, sessionId);
             if (!snapshot.State.Agents.Any(agent => agent.AgentId == agentId &&
+                                                   agent.SessionId == sessionId &&
                                                    agent.Role == CoordinationRoles.Integrator))
             {
                 throw new CoordinationException("integrator_required",
@@ -192,8 +240,15 @@ namespace Olivecrow.UnityAgentCoordination.Editor
 
             AgentCoordinationEditorContext.RequireCoordinatorEditor();
             string agentId = RequiredString(parameters, "agent_id");
+            string sessionId = ResolveSessionId(parameters, agentId);
             CoordinationSnapshot snapshot = service.GetStatus(Array.Empty<string>(), agentId,
-                AgentCoordinationEditorContext.SessionId);
+                AgentCoordinationEditorContext.SessionId, sessionId);
+            if (snapshot.State.ActiveEditorAccess != null)
+            {
+                throw new CoordinationException("active_editor_access",
+                    "Finish or cancel the active Editor access before relinquishing Editor ownership.");
+            }
+
             if (snapshot.State.ActiveValidation != null)
             {
                 throw new CoordinationException("active_validation",
@@ -201,14 +256,21 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             }
 
             if (!snapshot.State.Agents.Any(agent => agent.AgentId == agentId &&
+                                                   agent.SessionId == sessionId &&
                                                    agent.Role == CoordinationRoles.Integrator))
             {
                 throw new CoordinationException("integrator_required",
                     "Only the registered integrator can relinquish Editor ownership.");
             }
 
-            service.FinishWork(agentId);
+            service.FinishWork(agentId, sessionId);
             AgentCoordinationEditorContext.RelinquishOwnership();
+        }
+
+        private static string ResolveSessionId(JObject parameters, string agentId)
+        {
+            string sessionId = OptionalString(parameters, "session_id");
+            return string.IsNullOrWhiteSpace(sessionId) ? agentId : sessionId;
         }
 
         private static string RequiredString(JObject parameters, string name)

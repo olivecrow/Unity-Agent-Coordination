@@ -1,8 +1,8 @@
 {
   "name": "com.olivecrow.unity-agent-coordination",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "Unity Agent Coordination",
-  "description": "Coordinates concurrent AI agents while serializing shared Unity Editor ownership, compilation, tests, and exact-commit validation.",
+  "description": "Coordinates concurrent AI work sessions with commit-optional Unity Editor access and clean exact-commit validation queues.",
   "type": "tool",
   "author": {
     "name": "olivecrow",

@@ -37,7 +37,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
         private void OnGUI()
         {
             EditorGUILayout.LabelField("Unity AI Agent Coordination", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Validation Editor",
+            EditorGUILayout.LabelField("Canonical Editor",
                 AgentCoordinationEditorContext.IsCoordinatorEditor ? "This Editor" : "Another Editor");
 
             using (new EditorGUILayout.HorizontalScope())
@@ -51,8 +51,8 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 if (GUILayout.Button("Clear All Coordination State"))
                 {
                     if (EditorUtility.DisplayDialog("Clear Coordination State",
-                            "Clear all active agents, path claims, and queued validation requests?",
-                            "Clear", "Cancel"))
+                        "Clear all active sessions, path claims, Editor access requests, and validation requests?",
+                        "Clear", "Cancel"))
                     {
                         AgentCoordinationEditorContext.Service.ClearAll();
                         Refresh();
@@ -77,6 +77,8 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             EditorGUILayout.Space();
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
             DrawAgents(snapshot.State.Agents, snapshot.State.Claims);
+            EditorGUILayout.Space();
+            DrawEditorAccess(snapshot.State.EditorAccessRequests, snapshot.State.ActiveEditorAccess);
             EditorGUILayout.Space();
             DrawValidation(snapshot.State.ValidationRequests, snapshot.State.ActiveValidation);
             EditorGUILayout.Space();
@@ -107,7 +109,8 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     string kind = string.IsNullOrWhiteSpace(agent.WorkKind) ? "General" : agent.WorkKind;
-                    EditorGUILayout.LabelField($"[{agent.Role}] {kind}", EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField($"[{agent.Role}] {kind} · {agent.AgentId}", EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField("Session", agent.SessionId);
                     EditorGUILayout.LabelField("Phase", FormatPhase(agent.Phase));
                     EditorGUILayout.LabelField("Summary",
                         string.IsNullOrWhiteSpace(agent.Summary) ? "-" : agent.Summary,
@@ -117,13 +120,64 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                     EditorGUILayout.LabelField("Last Update",
                         $"{agent.HeartbeatUtc.ToLocalTime():HH:mm:ss} ({FormatElapsed(agent.HeartbeatUtc, now)} ago)");
 
-                    string[] ownedScopes = claims.Where(claim => claim.AgentId == agent.AgentId)
+                    string[] ownedScopes = claims.Where(claim => claim.SessionId == agent.SessionId)
                         .Select(claim => claim.Scope).OrderBy(value => value).ToArray();
                     if (ownedScopes.Length > 0)
                     {
                         EditorGUILayout.LabelField("Scopes", string.Join(", ", ownedScopes),
                             EditorStyles.wordWrappedLabel);
                     }
+                }
+            }
+        }
+
+        private static void DrawEditorAccess(IReadOnlyCollection<EditorAccessRequest> requests,
+            ActiveEditorAccess activeEditorAccess)
+        {
+            EditorAccessRequest[] pending = requests
+                .Where(request => request.State == EditorAccessStates.Queued ||
+                                  request.State == EditorAccessStates.Active)
+                .OrderBy(request => request.EnqueuedUtc).ToArray();
+            EditorGUILayout.LabelField($"Editor Access Queue ({pending.Length})", EditorStyles.boldLabel);
+            if (pending.Length == 0)
+            {
+                EditorGUILayout.HelpBox("No Editor access is queued or active.", MessageType.Info);
+                return;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            for (int index = 0; index < pending.Length; index++)
+            {
+                EditorAccessRequest request = pending[index];
+                bool isActive = activeEditorAccess != null &&
+                                activeEditorAccess.RequestId == request.RequestId;
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    EditorGUILayout.LabelField(
+                        $"{index + 1}. {(isActive ? "Active" : "Queued")} · {request.AgentId}",
+                        EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField("Session", request.SessionId);
+                    EditorGUILayout.LabelField("Summary",
+                        string.IsNullOrWhiteSpace(request.Summary) ? "-" : request.Summary,
+                        EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("Operations", string.Join(", ", request.Operations),
+                        EditorStyles.wordWrappedLabel);
+                    if (request.Scopes.Count > 0)
+                    {
+                        EditorGUILayout.LabelField("Scopes", string.Join(", ", request.Scopes),
+                            EditorStyles.wordWrappedLabel);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.BaseHeadSha))
+                    {
+                        string shortHead = request.BaseHeadSha.Length > 12
+                            ? request.BaseHeadSha.Substring(0, 12)
+                            : request.BaseHeadSha;
+                        EditorGUILayout.LabelField("Observed HEAD", shortHead);
+                    }
+
+                    EditorGUILayout.LabelField("Enqueued",
+                        $"{request.EnqueuedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} ({FormatElapsed(request.EnqueuedUtc, now)} elapsed)");
                 }
             }
         }
@@ -152,8 +206,9 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     EditorGUILayout.LabelField(
-                        $"{index + 1}. {(isActive ? "Running" : "Queued")} · {FormatPhase(request.Phase)}",
+                        $"{index + 1}. {(isActive ? "Running" : "Queued")} · {request.AgentId} · {FormatPhase(request.Phase)}",
                         EditorStyles.boldLabel);
+                    EditorGUILayout.LabelField("Session", request.SessionId);
                     EditorGUILayout.LabelField("Summary",
                         string.IsNullOrWhiteSpace(request.Summary) ? "-" : request.Summary,
                         EditorStyles.wordWrappedLabel);
@@ -181,6 +236,10 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                     return "Inspecting";
                 case AgentWorkPhases.Working:
                     return "Working";
+                case AgentWorkPhases.WaitingEditorAccess:
+                    return "Waiting for Editor Access";
+                case AgentWorkPhases.UsingEditor:
+                    return "Using Editor";
                 case AgentWorkPhases.WaitingValidation:
                     return "Waiting for Validation";
                 case AgentWorkPhases.Validating:

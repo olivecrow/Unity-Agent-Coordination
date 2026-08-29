@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
-An Editor-only Unity Package Manager package for coordinating multiple AI agents around one shared Unity Editor. Workers claim non-overlapping repository paths, while one canonical Editor serializes compilation, Unity Test Framework runs, Play Mode work, serialized asset changes, and exact-commit validation.
+An Editor-only Unity Package Manager package for coordinating multiple AI work sessions around one shared Unity Editor. Sessions claim non-overlapping repository paths and queue commit-optional Editor access, while one canonical Editor separately performs clean exact-commit validation.
 
 The coordination engine does not depend on a particular MCP implementation. It exposes a public C#/JSON command API, and MCP integrations are adapters around that API. A Coplay Unity MCP adapter is included, but it is compiled only when a compatible Coplay package is installed.
 
@@ -38,14 +38,22 @@ MCP itself does not define a universal mechanism for discovering arbitrary Unity
 
 See [Agent Setup](Documentation~/agent-setup.md) and the [Integration Protocol](Documentation~/mcp-protocol.md) for the exact contract.
 
+## Coordination Model
+
+- **Work sessions:** `agent_id` identifies the logical agent or task and optional `session_id` identifies one concrete work session. Omitting `session_id` preserves the original behavior by using `agent_id` as the session ID. Different sessions may start from the same Git HEAD and remain independent.
+- **Editor access queue:** a registered session can enqueue one or more arbitrary Editor operation sets. Each request receives a unique `request_id`; `base_head_sha` is optional diagnostic metadata, dirty working trees are allowed, and no candidate commit is required. Any request scopes must already be covered by that session's claims. Only the FIFO request owner can acquire the shared lease.
+- **Validation queue:** exact-SHA validation remains a separate worker-to-integrator flow. It requires a committed candidate and a clean canonical checkout whose HEAD matches the request.
+
+Editor access and validation leases are mutually exclusive. The access lease grants permission to use the canonical Editor but does not copy uncommitted changes from another worktree or automatically execute the requested operations.
+
 ## Package Assemblies
 
-- `Olivecrow.UnityAgentCoordination.Core`: repository identity, path claims, heartbeats, validation queue, atomic state, and owner lease data.
+- `Olivecrow.UnityAgentCoordination.Core`: repository identity, session-scoped path claims, Editor access and validation queues, heartbeats, atomic state, and owner lease data.
 - `Olivecrow.UnityAgentCoordination.Editor`: canonical Editor ownership, Git checkout checks, compilation, tests, the Editor status window, and the public transport-neutral command router.
 - `Olivecrow.UnityAgentCoordination.CoplayMcp`: optional Coplay adapter, excluded from compilation when Coplay Unity MCP is absent or outside the supported range.
-- Editor tests: isolated Git fixtures for repository identity, conflicting claims, serial validation, status formatting, and stale owner recovery.
+- Editor tests: isolated Git fixtures for repository identity, same-HEAD sessions, conflicting claims, FIFO Editor access, serial validation, status formatting, and stale owner recovery.
 
-Open `Window > AI Agent Coordination` to inspect current work, claims, owner state, and the validation queue.
+Open `Window > AI Agent Coordination` to inspect current sessions, claims, Editor access requests, owner state, and the validation queue.
 
 ## Development and Validation
 

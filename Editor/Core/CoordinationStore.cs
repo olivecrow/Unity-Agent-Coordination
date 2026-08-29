@@ -194,15 +194,50 @@ namespace Olivecrow.UnityAgentCoordination
         private CoordinationState ReadStateUnsafe()
         {
             CoordinationState state = ReadJsonUnsafe<CoordinationState>(StatePath) ?? new CoordinationState();
+            state.SchemaVersion = CoordinationSchema.CurrentVersion;
             state.Agents = state.Agents ?? new System.Collections.Generic.List<AgentRecord>();
             state.Claims = state.Claims ?? new System.Collections.Generic.List<ScopeClaim>();
+            state.EditorAccessRequests = state.EditorAccessRequests ??
+                                         new System.Collections.Generic.List<EditorAccessRequest>();
             state.ValidationRequests = state.ValidationRequests ?? new System.Collections.Generic.List<ValidationRequest>();
+            foreach (AgentRecord agent in state.Agents)
+            {
+                agent.SessionId = string.IsNullOrWhiteSpace(agent.SessionId) ? agent.AgentId : agent.SessionId;
+            }
+
+            foreach (ScopeClaim claim in state.Claims)
+            {
+                claim.SessionId = string.IsNullOrWhiteSpace(claim.SessionId) ? claim.AgentId : claim.SessionId;
+            }
+
+            foreach (EditorAccessRequest request in state.EditorAccessRequests)
+            {
+                request.SessionId = string.IsNullOrWhiteSpace(request.SessionId)
+                    ? request.AgentId
+                    : request.SessionId;
+                request.Operations = request.Operations ?? new System.Collections.Generic.List<string>();
+                request.Scopes = request.Scopes ?? new System.Collections.Generic.List<string>();
+            }
+
+            if (state.ActiveEditorAccess != null && string.IsNullOrWhiteSpace(state.ActiveEditorAccess.SessionId))
+            {
+                state.ActiveEditorAccess.SessionId = state.ActiveEditorAccess.AgentId;
+            }
+
             foreach (ValidationRequest request in state.ValidationRequests)
             {
+                request.SessionId = string.IsNullOrWhiteSpace(request.SessionId)
+                    ? request.AgentId
+                    : request.SessionId;
                 request.TestModes = request.TestModes ?? new System.Collections.Generic.List<string>();
                 request.ManualChecks = request.ManualChecks ?? new System.Collections.Generic.List<string>();
                 request.CompilationErrors = request.CompilationErrors ?? new System.Collections.Generic.List<string>();
                 request.TestFailures = request.TestFailures ?? new System.Collections.Generic.List<string>();
+            }
+
+            if (state.ActiveValidation != null && string.IsNullOrWhiteSpace(state.ActiveValidation.IntegratorSessionId))
+            {
+                state.ActiveValidation.IntegratorSessionId = state.ActiveValidation.IntegratorAgentId;
             }
 
             return state;

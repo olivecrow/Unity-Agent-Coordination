@@ -6,7 +6,7 @@
 
 ## Codex
 
-`Skills~/unity-agent-coordination`을 Codex 스킬 위치에 복사하거나 연결하고 프로젝트 `AGENTS.md`에서 해당 스킬을 안내합니다. 포함된 스킬에는 적용 범위, 패키지 bootstrap, canonical Editor 정책, 검증 생명주기, 상한이 있는 대기와 정리 절차가 들어 있습니다.
+`Skills~/unity-agent-coordination`을 Codex 스킬 위치에 복사하거나 연결하고 프로젝트 `AGENTS.md`에서 해당 스킬을 안내합니다. 포함된 스킬에는 적용 범위, 패키지 bootstrap, 세션 식별, commit 비의존 Editor 점유, exact-SHA 검증, 상한이 있는 대기와 정리 절차가 들어 있습니다.
 
 ## Claude Code와 다른 에이전트
 
@@ -15,9 +15,10 @@
 ```markdown
 공유 Unity Editor를 사용하거나 자동 import를 일으킬 수 있는 작업은 첫 Editor
 영향 작업 전에 Unity Agent Coordination 지침을 읽는다. coordination 어댑터의
-status를 먼저 호출하고 path claim과 활성 validation lease를 지키며 완료 시
-finish_work를 호출한다. Git 전용 또는 파일시스템 전용 작업에는 적용하지 않고
-coordination 상태 파일을 직접 편집하지 않는다.
+status를 먼저 호출하고 고유 세션을 등록하며 path claim을 지킨다. Editor 상태
+작업 전에 점유를 대기열에 넣고, clean commit candidate에만 exact-SHA 검증을
+사용하며 완료 시 finish_work를 호출한다. Git 전용 또는 파일시스템 전용 작업에는
+적용하지 않고 coordination 상태 파일을 직접 편집하지 않는다.
 ```
 
 `AGENTS.md`, `CLAUDE.md` 또는 사용하는 에이전트의 프로젝트 지침 파일에 넣을 수 있습니다. 표현은 바꿔도 적용 범위와 정리 계약은 유지합니다.
@@ -44,3 +45,5 @@ coordination 상태 파일을 직접 편집하지 않는다.
 - 호출 경로가 없다면 어댑터를 먼저 추가합니다. `%LOCALAPPDATA%` 상태를 직접 읽거나 쓰지 않습니다.
 
 명령 schema는 [통합 프로토콜](mcp-protocol.ko.md)을 참고합니다.
+
+어댑터는 세션과 Editor 점유 필드를 모두 노출해야 합니다. 이전 패키지 버전은 `session_id`나 `*_editor_access` action을 인식하지 않을 수 있으므로 에이전트는 action schema 또는 status state가 보고하는 schema version(포함된 라우터 응답에서는 `State.SchemaVersion`)으로 지원 여부를 확인하고, 검증 대기열을 일반적인 commit 전 점유 대기열처럼 사용하면 안 됩니다.

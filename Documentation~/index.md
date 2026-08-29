@@ -4,9 +4,9 @@
 
 ## Purpose
 
-This package separates parallel file ownership from serial Unity Editor validation. Workers claim repository-relative paths and may work concurrently when those paths do not overlap. One canonical Editor owns the validation lease and is the only Editor allowed to compile, run Unity tests, enter Play Mode for validation, or confirm serialized changes for a queued commit.
+This package separates parallel file ownership, commit-optional Unity Editor access, and clean exact-commit validation. Work sessions claim repository-relative paths and may run concurrently when those paths do not overlap. One canonical Editor serializes Editor access and validation leases.
 
-The package enforces claims, one integrator, one active validation lease, exact Git SHAs, and a clean validation checkout. Agent instructions enforce the remaining operating rules, including when coordination starts, which Editor to select, and when not to launch another Editor.
+`agent_id` identifies a logical agent or task while optional `session_id` identifies one concrete work session. Different sessions may share the same agent ID and Git HEAD. The package enforces session-scoped claims, one integrator, at most one active Editor lease, exact Git SHAs only for validation, and a clean validation checkout.
 
 ## Compatibility and Dependencies
 
@@ -59,24 +59,26 @@ Do not start coordination for Git-only operations, read-only filesystem inspecti
 Before the first Editor-affecting action, inspect running Unity processes and the selected MCP's instances when that capability exists. Then invoke `status` with the intended scopes.
 
 - A live `EditorOwner` record identifies the canonical Editor for the repository.
-- Only the canonical Editor may register the integrator and acquire validation.
+- Only the canonical Editor may grant Editor access or acquire validation; only the integrator may acquire exact-SHA validation.
 - Agent instructions must not launch another Editor while any Unity Editor process already exists. The package records ownership but does not block process creation itself.
 - If multiple Editors exist and the owner cannot be matched safely, report their project paths, process IDs, MCP instances, and owner state rather than guessing.
 - A dirty canonical checkout cannot validate an exact SHA. Wait until it can be made clean within the user's authority, or request an explicit owner handoff.
 
 Use bounded readiness checks. The included agent skill recommends 60 seconds for an existing process to appear in the MCP, 180 seconds for import or compilation readiness, and 100 seconds for owner handoff. Startup dialogs, Safe Mode, licensing, upgrades, and recovery choices require user input and are not transient readiness states.
 
-## Work and Validation Lifecycle
+## Work, Editor Access, and Validation Lifecycle
 
-1. Call `status` with the stable `agent_id` and intended repository-relative `scopes`.
-2. If `ConflictingClaims` is empty, call `begin_work` as a `worker`. The Editor owning the canonical checkout may register one `integrator`.
+1. Call `status` with a stable `agent_id`, a unique `session_id`, and intended repository-relative `scopes`. Older clients may omit `session_id`, which makes it equal to `agent_id`.
+2. If `ConflictingClaims` is empty, call `begin_work` as a `worker`. Multiple sessions may use the same HEAD. The Editor owning the canonical checkout may register one `integrator` session.
 3. Claim added paths before editing them. Send `heartbeat` when phase, summary, worktree HEAD, or work kind changes.
-4. Recheck `status` before writing Unity-observed files and before every Editor-stateful call. Wait while another validation lease is active.
-5. After a candidate commit exists, a worker calls `enqueue_validation` with its exact 40-character SHA, ordered test modes, and manual checks.
-6. The integrator puts the canonical checkout at that SHA, confirms it has no tracked or untracked changes, then calls `acquire_validation`.
-7. The package refreshes assets, requests compilation, and runs requested `EditMode` and `PlayMode` suites serially.
-8. After console and manual checks, the lease owner calls `finish_validation`. Recorded compile or test failures cannot be overridden by `passed=true`.
-9. Cancel abandoned requests and call `finish_work` only after every owned request is terminal.
+4. Before import, compilation, Console inspection, tests, Play Mode, builds, serialized edits, or another Editor operation, call `enqueue_editor_access` with one or more free-form `operations`. Path-specific request scopes must already be covered by the session's claims; path-independent work may omit scopes. `base_head_sha` and `request_key` are optional; no candidate commit is required.
+5. The owner session acquires the FIFO head with `acquire_editor_access`, heartbeats while using the Editor, performs the declared operations through the project's existing Unity bridge, and calls `finish_editor_access`. Use `cancel_editor_access` when abandoning the request.
+6. The access lease permits use of the canonical Editor but does not copy another worktree's uncommitted changes. A session that needs those changes must already be operating in the Editor's checkout or use a separately authorized integration workflow.
+7. After a candidate commit exists, a worker may separately call `enqueue_validation` with its exact 40-character SHA, ordered test modes, and manual checks.
+8. The integrator puts the canonical checkout at that SHA, confirms it has no tracked or untracked changes, then calls `acquire_validation`.
+9. The package refreshes assets, requests compilation, and runs requested `EditMode` and `PlayMode` suites serially. Editor access and validation leases cannot overlap.
+10. After console and manual checks, the lease owner calls `finish_validation`. Recorded compile or test failures cannot be overridden by `passed=true`.
+11. Cancel abandoned requests and call `finish_work` only after every owned request is terminal.
 
 If an explicitly approved separate worktree uses Git LFS, prove that tracked files are materialized before opening Unity or enqueueing validation. A clean `git status` does not distinguish real objects from committed LFS pointer files.
 
@@ -90,9 +92,9 @@ All worktrees of the same Git repository share an ID derived from `.git/commondi
 
 Set `UNITY_AGENT_COORDINATOR_ROOT` to override the root for tests or controlled automation. JSON writes use a named mutex and atomic temporary-file replacement.
 
-The canonical Editor heartbeats every 15 seconds. A dead owner process can be replaced immediately; otherwise an owner is stale after 90 seconds. Stale owner recovery preserves worker claims and queued validation. Agent heartbeats expire after 45 minutes, validation leases after 45 minutes, and orphaned queued requests after four hours. Normal Editor exit clears the repository coordination and owner files.
+The canonical Editor heartbeats every 15 seconds. A dead owner process can be replaced immediately; otherwise an owner is stale after 90 seconds. Stale owner recovery preserves session claims and both queues. Agent, Editor access, and validation heartbeats expire after 45 minutes, and orphaned queued requests after four hours. Normal Editor exit clears the repository coordination and owner files.
 
-Inspect live state at `Window > AI Agent Coordination`. Clearing all state is a recovery operation, not normal cleanup.
+Inspect sessions, claims, Editor access, and validation state at `Window > AI Agent Coordination`. Clearing all state is a recovery operation, not normal cleanup.
 
 ## Agent Guidance
 

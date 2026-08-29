@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 namespace Olivecrow.UnityAgentCoordination.CoplayMcp
 {
     [McpForUnityResource("get_unity_agent_coordination",
-        Description = "Current AI agent claims, validation queue and lease, and coordinator Editor owner.")]
+        Description = "Current AI work sessions, path claims, commit-optional Editor access queue, exact-SHA validation queue, active leases, and canonical Editor owner.")]
     public static class UnityAgentCoordinationResource
     {
         public static object HandleCommand(JObject parameters)

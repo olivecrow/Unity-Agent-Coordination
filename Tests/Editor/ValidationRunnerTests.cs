@@ -27,6 +27,8 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [TestCase("inspecting", "Inspecting")]
+        [TestCase("waiting_editor_access", "Waiting for Editor Access")]
+        [TestCase("using_editor", "Using Editor")]
         [TestCase("waiting_validation", "Waiting for Validation")]
         [TestCase("testing", "Testing")]
         [TestCase(null, "Unspecified")]

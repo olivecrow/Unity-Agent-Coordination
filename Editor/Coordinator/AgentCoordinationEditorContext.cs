@@ -51,7 +51,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             if (!IsCoordinatorEditor)
             {
                 throw new CoordinationException("not_coordinator_editor",
-                    "This Unity Editor does not own repository validation. Retry after the editor-owner heartbeat expires.");
+                    "This Unity Editor does not own shared Editor access and validation. Retry after the editor-owner heartbeat expires.");
             }
         }
 

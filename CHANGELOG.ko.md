@@ -4,6 +4,11 @@
 
 ## 미출시
 
+- import, 컴파일, Console 확인, 테스트, Play Mode, 빌드, 직렬화 편집과 사용자 정의 작업을 commit 없이 요청할 수 있는 Editor 점유 대기열을 추가했습니다.
+- 하나의 논리적 agent와 같은 HEAD에서도 독립 작업 세션을 여러 개 등록할 수 있도록 `session_id`를 추가했습니다. 생략하면 하위 호환을 위해 `agent_id`를 세션 ID로 사용합니다.
+- FIFO Editor 점유 lease, 선택형 요청 멱등성 키, heartbeat 만료, 취소와 exact-SHA 검증 간 상호 배제를 추가했습니다.
+- 경로를 명시한 Editor 점유 요청은 해당 세션의 기존 claim 범위 안에서만 허용하고 Console 확인처럼 경로와 무관한 작업은 scope 없이 요청할 수 있게 했습니다.
+- 저장된 coordination 상태를 schema version 2로 마이그레이션하고 상태 창과 전송 중립 API에 Editor 점유 세션과 요청을 표시합니다.
 - 공개 명령 라우터 signature를 사용하는 테스트가 컴파일되도록 Editor 테스트 어셈블리에 NUnit과 Newtonsoft JSON precompiled reference를 명시했습니다.
 - `com.unity.nuget.newtonsoft-json`을 패키지와 함께 자동 resolve되는 필수 UPM 의존성으로 확인했습니다.
 - 포함된 Codex 스킬이 기존 패키지 설치를 그대로 사용하고 패키지가 없을 때만 태그가 지정된 Git UPM 의존성을 bootstrap하도록 변경했습니다.

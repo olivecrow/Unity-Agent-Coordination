@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
-여러 AI 에이전트가 하나의 공유 Unity Editor를 안전하게 사용하도록 조정하는 Editor 전용 UPM 패키지입니다. worker는 서로 겹치지 않는 저장소 경로를 claim하고, 하나의 canonical Editor만 컴파일, Unity Test Framework, Play Mode 작업, 직렬화 에셋 변경과 exact-commit 검증을 순서대로 수행합니다.
+여러 AI 작업 세션이 하나의 공유 Unity Editor를 안전하게 사용하도록 조정하는 Editor 전용 UPM 패키지입니다. 세션은 서로 겹치지 않는 저장소 경로를 claim하고 commit 없이도 Editor 점유를 대기열에 넣으며, 하나의 canonical Editor가 별도로 깨끗한 exact-commit 검증을 수행합니다.
 
 핵심 조정 엔진은 특정 MCP 구현에 의존하지 않습니다. 공개 C#/JSON 명령 API를 제공하고, MCP 연동은 이 API를 감싸는 어댑터로 분리합니다. Coplay Unity MCP 어댑터가 포함되어 있지만 호환 Coplay 패키지가 설치된 경우에만 컴파일됩니다.
 
@@ -38,14 +38,22 @@ MCP 프로토콜 자체에는 임의 Unity 패키지 도구를 공통 방식으�
 
 정확한 설정은 [에이전트 설정](Documentation~/agent-setup.ko.md), 명령 계약은 [통합 프로토콜](Documentation~/mcp-protocol.ko.md)을 참고합니다.
 
+## 조정 모델
+
+- **작업 세션:** `agent_id`는 논리적인 agent나 작업을, 선택형 `session_id`는 하나의 실제 작업 세션을 식별합니다. `session_id`를 생략하면 기존 동작과 호환되도록 `agent_id`를 세션 ID로 사용합니다. 서로 다른 세션은 같은 Git HEAD에서 시작해도 독립적으로 동작합니다.
+- **Editor 점유 대기열:** 등록된 세션은 임의의 Editor 작업 묶음을 하나 이상 대기열에 넣을 수 있습니다. 각 요청은 고유 `request_id`를 받으며 `base_head_sha`는 선택형 진단 정보일 뿐입니다. 요청에 scope를 넣는다면 해당 세션의 claim 범위 안이어야 합니다. dirty working tree와 commit 전 작업도 허용되고 FIFO 선두 요청의 소유 세션만 공유 lease를 획득합니다.
+- **검증 대기열:** exact-SHA 검증은 worker와 integrator 사이의 별도 흐름으로 유지됩니다. commit된 candidate와 요청 HEAD가 일치하는 깨끗한 canonical checkout이 필요합니다.
+
+Editor 점유 lease와 검증 lease는 동시에 활성화될 수 없습니다. 점유 lease는 canonical Editor를 사용할 권한만 부여하며 다른 worktree의 미커밋 변경을 복사하거나 요청 작업을 자동 실행하지 않습니다.
+
 ## 패키지 어셈블리
 
-- `Olivecrow.UnityAgentCoordination.Core`: 저장소 식별, 경로 claim, heartbeat, 검증 대기열, 원자적 상태와 owner lease 데이터.
+- `Olivecrow.UnityAgentCoordination.Core`: 저장소 식별, 세션 단위 경로 claim, Editor 점유·검증 대기열, heartbeat, 원자적 상태와 owner lease 데이터.
 - `Olivecrow.UnityAgentCoordination.Editor`: canonical Editor 소유권, Git checkout 검사, 컴파일, 테스트, 상태 창과 전송 중립 명령 라우터.
 - `Olivecrow.UnityAgentCoordination.CoplayMcp`: Coplay가 없거나 지원 범위를 벗어나면 컴파일에서 제외되는 선택형 어댑터.
-- Editor 테스트: 저장소 ID, claim 충돌, 직렬 검증, 상태 표시와 stale owner 복구를 격리된 Git fixture로 검증합니다.
+- Editor 테스트: 저장소 ID, 같은 HEAD의 다중 세션, claim 충돌, FIFO Editor 점유, 직렬 검증, 상태 표시와 stale owner 복구를 격리된 Git fixture로 검증합니다.
 
-현재 작업과 claim, owner, 검증 대기열은 `Window > AI Agent Coordination`에서 확인할 수 있습니다.
+현재 세션과 claim, Editor 점유 요청, owner, 검증 대기열은 `Window > AI Agent Coordination`에서 확인할 수 있습니다.
 
 ## 개발과 검증
 

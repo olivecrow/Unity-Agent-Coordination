@@ -6,6 +6,11 @@ All notable changes to this package are documented here.
 
 ## Unreleased
 
+- Added a commit-optional Editor access queue for imports, compilation, Console inspection, tests, Play Mode, builds, serialized edits, and custom operations.
+- Added explicit `session_id` support so one logical agent and one HEAD can own multiple independent work sessions; omitted session IDs remain backward-compatible with `agent_id`.
+- Added FIFO Editor access leases, optional request idempotency keys, heartbeat expiry, cancellation, and mutual exclusion with exact-SHA validation.
+- Required path-specific Editor access requests to stay within the requesting session's existing claims while allowing scope-free operations such as Console inspection.
+- Migrated persisted coordination state to schema version 2 and exposed Editor access sessions and requests in the status window and transport-neutral API.
 - Added explicit NUnit and Newtonsoft JSON precompiled references to the Editor test assembly so public router signatures compile in consuming tests.
 - Confirmed `com.unity.nuget.newtonsoft-json` as a required UPM dependency that is resolved automatically with the package.
 - Updated the bundled Codex skill to reuse existing package installations and bootstrap the tagged Git UPM dependency only when the package is absent.
