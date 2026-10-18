@@ -1,6 +1,6 @@
 ---
 name: unity-agent-coordination
-description: Coordinate session-scoped access to a shared Unity Editor with a commit-optional FIFO access queue and a separate clean exact-SHA validation queue. When activated, reuse an installed com.olivecrow.unity-agent-coordination package or bootstrap its tagged Git UPM dependency before Editor work. Use for import or compilation, Unity Test Runner, Play Mode, builds, live Editor diagnosis, scene or prefab serialization, writes in the checkout currently open in Unity that can trigger automatic import, and workflows that must acquire the canonical Editor or validation lease. Do not use for Git-only, read-only, planning, documentation, or filesystem-only work that does not use or affect a live Unity Editor.
+description: Coordinate session-scoped access to a shared Unity Editor with a commit-optional FIFO access queue and a separate clean exact-SHA validation queue. Apply only inside the consuming Unity project while com.olivecrow.unity-agent-coordination is installed; do not install or upgrade packages. Use for import or compilation, Unity Test Runner, Play Mode, builds, live Editor diagnosis, scene or prefab serialization, writes in the checkout currently open in Unity that can trigger automatic import, and workflows that must acquire the canonical Editor or validation lease. Do not use for Git-only, read-only, planning, documentation, or filesystem-only work that does not use or affect a live Unity Editor.
 ---
 
 # Unity Agent Coordination
@@ -20,27 +20,19 @@ Activate immediately before the first operation that will:
 
 Do not activate for Git-only work; read-only code or asset inspection; documentation, planning, or administration; or filesystem-only edits in a checkout not open in Unity when no Editor validation is requested. If Editor involvement becomes necessary later, activate immediately before that first Editor-affecting step.
 
-## Package Bootstrap
+## Project Scope and Package Check
 
-After activation, locate the Unity project root by its `Assets`, `Packages`, and `ProjectSettings` directories. Check whether Unity already resolves `com.olivecrow.unity-agent-coordination` or `Packages/manifest.json` already declares it.
+This skill belongs to the Unity project containing `.agents/skills/unity-agent-coordination`. The package registers that project-local copy after import; do not install it in a user-global skill directory or apply it to unrelated projects.
 
-- If the package is already installed or declared, use that source and version as-is. Do not replace a file, registry, or Git dependency and do not upgrade it merely because this skill was activated.
-- If no dependency is declared but `Packages/com.olivecrow.unity-agent-coordination/package.json` exists with the matching package name, add the existing embedded package as `"file:com.olivecrow.unity-agent-coordination"`.
-- Otherwise add this exact dependency under the existing `dependencies` object in `Packages/manifest.json`:
+After activation, locate the current Unity project root by its `Assets`, `Packages`, and `ProjectSettings` directories. Verify that `com.olivecrow.unity-agent-coordination` is installed or declared in that project's `Packages/manifest.json`. Use its existing source and version as-is. If the package is absent, stop this workflow; do not add a dependency, restore a removed package, or upgrade it merely because a stale skill copy remains.
 
-```json
-"com.olivecrow.unity-agent-coordination": "https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0"
-```
+Inspect OS Unity processes and the selected MCP's Unity instances when available. Do not launch a second Editor. If the declared package is still resolving, wait within the readiness budget. Stop on package-resolution failure, an upgrade prompt, Safe Mode, or a compatibility error.
 
-Preserve every unrelated manifest entry and the project's formatting, then validate the JSON. Never edit `Packages/packages-lock.json` by hand; let Unity Package Manager resolve it. If the manifest is invalid, conflicted, or cannot be changed without overwriting unrelated work, stop and report the blocker.
-
-Inspect OS Unity processes before changing the manifest and inspect the selected MCP's Unity instances at the same time when available. Do not launch a second Editor. When the target project is already open, the dependency edit may immediately trigger package resolution, import, and compilation; wait within the readiness budget before continuing. When no Editor is open, record the dependency before any authorized launch and wait for resolution after startup. Stop on Git/network failure, package-resolution failure, an upgrade prompt, Safe Mode, or a compatibility error instead of substituting another package or editing coordination state directly.
-
-Package bootstrap is the only pre-coordination exception: the coordination API cannot exist before the package is available. Include `Packages/manifest.json` in the first reported scope when it was changed. Once the package and an adapter are available, `status` must be the first coordination action. Installing this package does not install an MCP provider; use an adapter exposed by the project's existing Unity MCP, and do not install or replace that provider unless the user separately requests it.
+The package does not install an MCP provider. Use an adapter exposed by the project's existing Unity MCP, and do not install or replace that provider unless separately requested. Once the package and adapter are available, `status` must be the first coordination action.
 
 ## First Action
 
-1. Complete the package bootstrap and process checks above.
+1. Complete the project-local package and process checks above.
 2. Select the transport instance matching the target repository, create a stable logical `agent_id`, and create a unique `session_id` for this work session.
 3. Discover the installed coordination adapter. If none exists after package resolution, stop before the Editor-affecting operation and report that the current Unity MCP needs an adapter.
 4. Call `action=status` with the stable `agent_id`, unique `session_id`, and intended repository-relative `scopes`.

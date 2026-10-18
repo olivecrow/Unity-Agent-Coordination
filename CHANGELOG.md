@@ -4,7 +4,15 @@
 
 All notable changes to this package are documented here.
 
-## Unreleased
+## 0.4.0 - 2026-10-18
+
+- Automatically register the Codex skill in the consuming project's `.agents/skills/unity-agent-coordination` after Unity imports the package.
+- Track managed file hashes, update only unmodified files, and remove only package-owned files during normal Package Manager removal. Preserve user modifications and unmanaged skills with a warning.
+- Scope the skill to the consuming project and its installed package; remove user-global skill installation and automatic package bootstrap.
+- Add filesystem regression tests covering installation, repeated registration, updates, removal, and user changes.
+- Document reference-assembly compilation and isolated tests separately from live Editor callback and Unity Test Runner validation.
+
+## 0.3.0 - 2026-08-29
 
 - Added a commit-optional Editor access queue for imports, compilation, Console inspection, tests, Play Mode, builds, serialized edits, and custom operations.
 - Added explicit `session_id` support so one logical agent and one HEAD can own multiple independent work sessions; omitted session IDs remain backward-compatible with `agent_id`.
@@ -14,7 +22,7 @@ All notable changes to this package are documented here.
 - Added explicit NUnit and Newtonsoft JSON precompiled references to the Editor test assembly so public router signatures compile in consuming tests.
 - Confirmed `com.unity.nuget.newtonsoft-json` as a required UPM dependency that is resolved automatically with the package.
 - Updated the bundled Codex skill to reuse existing package installations and bootstrap the tagged Git UPM dependency only when the package is absent.
-- Documented that package bootstrap does not install or replace the project's Unity MCP provider.
+- Documented that package installation does not install or replace the project's Unity MCP provider.
 
 ## 0.2.0 - 2026-08-28
 

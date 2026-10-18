@@ -1,6 +1,6 @@
 {
   "name": "com.olivecrow.unity-agent-coordination",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "displayName": "Unity Agent Coordination",
   "description": "Coordinates concurrent AI work sessions with commit-optional Unity Editor access and clean exact-commit validation queues.",
   "type": "tool",

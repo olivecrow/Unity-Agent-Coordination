@@ -6,7 +6,13 @@ The package needs both an agent operating rule and a callable Unity transport ad
 
 ## Codex
 
-Copy or link `Skills~/unity-agent-coordination` into a Codex skill location, then mention the skill from the project's `AGENTS.md`. The included skill defines when coordination applies, package bootstrap, session identity, commit-optional Editor access, exact-SHA validation, bounded waits, and cleanup.
+After Unity imports and compiles this package, its Editor initialization copies the bundled skill and supporting resources into `<UnityProject>/.agents/skills/unity-agent-coordination`. Codex discovers this repository-scoped folder automatically when working in that project. No user-global installation or automatic `AGENTS.md` edit is needed. See [Codex skill locations](https://developers.openai.com/codex/skills#where-codex-loads-local-skills).
+
+The `.package-owned` record tracks the installed file hashes. Subsequent Editor initialization updates unmodified files without rewriting identical content. Existing unmanaged skills and user-modified files are left intact with a Console warning. Normal removal through Unity Package Manager deletes only unchanged package-owned files and retains unrelated files. If the package is removed while Unity is closed, or cleanup is blocked by user modifications, remove the leftover project-local folder manually when appropriate; its instructions stop if the package is absent.
+
+To migrate a previous global installation, first confirm the project-local copy exists, then remove or archive the `unity-agent-coordination` folder from the user skill directory. Leave other global skills intact. Generated project-local files remain visible to Git: review and commit or ignore them before requesting clean exact-SHA validation.
+
+Automatic registration is available starting with `v0.4.0`. Tags `v0.2.0` and `v0.3.0` predate it: for those versions, copy `Skills~/unity-agent-coordination` into the project's `.agents/skills` manually. If Codex does not show a newly registered skill, restart it.
 
 ## Claude Code and Other Agents
 
@@ -23,15 +29,9 @@ coordination for Git-only or filesystem-only work. Never edit coordination state
 
 Use the host's native guidance file, such as `AGENTS.md`, `CLAUDE.md`, or an equivalent project instruction file. The wording may change, but preserve the activation boundary and cleanup contract.
 
-## Package Bootstrap
+## Project Package Scope
 
-The bundled Codex skill checks the package only after a task crosses the Editor-affecting activation boundary. If `com.olivecrow.unity-agent-coordination` is already installed or declared, the agent uses its existing source and version without replacing or upgrading it. If an embedded package folder already exists, the skill adds its local `file:` dependency. Otherwise it adds the tagged public Git dependency:
-
-```json
-"com.olivecrow.unity-agent-coordination": "https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0"
-```
-
-The agent preserves unrelated `Packages/manifest.json` entries and leaves `Packages/packages-lock.json` to Unity Package Manager. Package installation is a one-time bootstrap exception because the coordination API is not available beforehand. The agent still inspects running Unity processes before the dependency edit, never launches a second Editor, and waits for package resolution before calling `status` as its first coordination action.
+The project-local skill uses the package already installed in that Unity project. It never adds or upgrades dependencies, restores a removed package, or writes a user-global skill. It stops if the package is absent. Keep the existing package source and version unchanged when applying coordination.
 
 Installing this package does not install or select an MCP provider. The agent uses the project's existing Unity MCP adapter. Adding or replacing an MCP implementation remains a separate user-authorized change.
 

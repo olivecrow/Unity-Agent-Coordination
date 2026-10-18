@@ -1,4 +1,4 @@
 interface:
   display_name: "Unity Agent Coordination"
   short_description: "Queue shared Unity Editor access and exact-SHA validation"
-  default_prompt: "Use $unity-agent-coordination when this session needs the canonical Unity Editor for compilation, tests, Play Mode, serialized asset changes, builds, diagnosis, or exact-SHA validation. Register a unique session, use the commit-optional FIFO Editor access queue for ordinary stateful work, and reserve the validation queue for clean committed candidates. Reuse the installed package or bootstrap its tagged Git UPM dependency when missing."
+  default_prompt: "Use $unity-agent-coordination when this session needs the canonical Unity Editor for compilation, tests, Play Mode, serialized asset changes, builds, diagnosis, or exact-SHA validation. Register a unique session, use the commit-optional FIFO Editor access queue for ordinary stateful work, and reserve the validation queue for clean committed candidates. Apply only in this project with the package installed; do not install, restore, or upgrade the package."

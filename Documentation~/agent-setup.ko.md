@@ -6,7 +6,13 @@
 
 ## Codex
 
-`Skills~/unity-agent-coordination`을 Codex 스킬 위치에 복사하거나 연결하고 프로젝트 `AGENTS.md`에서 해당 스킬을 안내합니다. 포함된 스킬에는 적용 범위, 패키지 bootstrap, 세션 식별, commit 비의존 Editor 점유, exact-SHA 검증, 상한이 있는 대기와 정리 절차가 들어 있습니다.
+Unity에서 이 패키지를 임포트하고 컴파일하면 Editor 초기화가 포함된 스킬과 참조 파일을 `<UnityProject>/.agents/skills/unity-agent-coordination`에 복사합니다. Codex는 해당 프로젝트에서 작업할 때 이 프로젝트 전용 폴더를 자동 탐색합니다. 사용자 전역 설치나 `AGENTS.md` 자동 수정은 필요하지 않습니다. [Codex 스킬 경로](https://developers.openai.com/codex/skills#where-codex-loads-local-skills)를 참고하세요.
+
+`.package-owned` 파일은 설치한 파일의 해시를 기록합니다. 이후 Editor 초기화에서는 사용자가 수정하지 않은 파일만 갱신하며 동일한 내용은 다시 쓰지 않습니다. 기존 비관리 스킬이나 사용자 수정은 Console 경고와 함께 그대로 보존합니다. Unity Package Manager로 패키지를 제거하면 수정되지 않은 패키지 관리 파일만 정리하고 다른 파일은 보존합니다. Unity가 닫힌 상태에서 패키지를 제거했거나 사용자 수정으로 정리가 중단됐다면 필요에 따라 남은 프로젝트 스킬 폴더를 직접 정리합니다. 남은 스킬도 패키지가 없으면 작업을 중단합니다.
+
+기존 전역 설치를 전환할 때는 먼저 프로젝트 스킬이 생성됐는지 확인하고 사용자 스킬 폴더의 `unity-agent-coordination`만 제거하거나 백업합니다. 다른 전역 스킬은 유지합니다. 생성 파일은 Git에 그대로 표시되므로 clean exact-SHA 검증을 요청하기 전에 검토하여 커밋하거나 ignore 처리합니다.
+
+자동 등록은 `v0.4.0`부터 제공됩니다. 기존 `v0.2.0`과 `v0.3.0` 태그에는 없으므로 해당 버전에서는 `Skills~/unity-agent-coordination`을 프로젝트의 `.agents/skills`에 직접 복사합니다. 새 스킬이 Codex에 표시되지 않으면 Codex를 다시 시작합니다.
 
 ## Claude Code와 다른 에이전트
 
@@ -23,15 +29,9 @@ status를 먼저 호출하고 고유 세션을 등록하며 path claim을 지킨
 
 `AGENTS.md`, `CLAUDE.md` 또는 사용하는 에이전트의 프로젝트 지침 파일에 넣을 수 있습니다. 표현은 바꿔도 적용 범위와 정리 계약은 유지합니다.
 
-## 패키지 Bootstrap
+## 프로젝트 패키지 범위
 
-포함된 Codex 스킬은 작업이 Editor 영향 적용 범위를 넘은 뒤에만 패키지를 확인합니다. `com.olivecrow.unity-agent-coordination`이 이미 설치 또는 선언되어 있으면 기존 소스와 버전을 바꾸거나 업그레이드하지 않고 그대로 사용합니다. embedded package 폴더만 있다면 로컬 `file:` 의존성을 추가하고, 둘 다 없다면 다음 태그가 지정된 공개 Git 의존성을 추가합니다.
-
-```json
-"com.olivecrow.unity-agent-coordination": "https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0"
-```
-
-에이전트는 `Packages/manifest.json`의 다른 항목을 보존하고 `Packages/packages-lock.json`은 Unity Package Manager가 관리하게 둡니다. 패키지 설치는 그전에는 coordination API가 존재하지 않기 때문에 허용하는 일회성 bootstrap 예외입니다. 의존성을 수정하기 전에 실행 중인 Unity 프로세스를 확인하고 두 번째 Editor를 실행하지 않으며, package resolution이 끝난 다음 `status`를 첫 coordination action으로 호출합니다.
+프로젝트 스킬은 해당 Unity 프로젝트에 이미 설치된 패키지를 사용합니다. 의존성을 추가하거나 업그레이드하지 않으며, 제거된 패키지를 복구하거나 전역 스킬을 생성하지 않습니다. 패키지가 없으면 중단합니다. 조정 규칙을 적용할 때 기존 패키지 소스와 버전을 유지합니다.
 
 이 패키지를 설치해도 MCP provider가 함께 설치되거나 선택되지는 않습니다. 에이전트는 프로젝트에 이미 있는 Unity MCP 어댑터를 사용합니다. MCP 구현을 추가하거나 교체하는 작업은 별도의 사용자 승인이 필요합니다.
 

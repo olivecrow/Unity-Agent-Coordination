@@ -8,7 +8,7 @@
 
 ## 호환성
 
-- Unity `6000.3.22f1`에서 테스트했습니다.
+- Unity `6000.3.22f1` 참조 어셈블리를 기준으로 컴파일을 확인합니다. 아래 검증 범위를 참고하세요.
 - 패키지 manifest에는 최소 Unity 버전을 의도적으로 선언하지 않았습니다. 따라서 다른 버전에서도 UPM 설치가 허용될 수 있지만, 실제 테스트 전까지 호환을 보장하지 않습니다.
 - Unity Test Framework와 Unity registry의 `com.unity.nuget.newtonsoft-json` 패키지가 필요합니다. 두 의존성 모두 `package.json`에 선언되어 Unity Package Manager가 자동으로 resolve합니다.
 - Coplay Unity MCP는 선택 사항입니다. 포함된 어댑터는 `com.coplaydev.unity-mcp` `10.1.2` 이상 `11.0.0` 미만을 대상으로 하며 `10.1.2`에서 테스트했습니다.
@@ -18,7 +18,7 @@
 Unity Package Manager의 **Install package from git URL**에 다음 주소를 입력합니다.
 
 ```text
-https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.2.0
+https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.4.0
 ```
 
 embedded package로 사용할 때는 `Packages/com.olivecrow.unity-agent-coordination`에 배치하고 소비 프로젝트의 `Packages/manifest.json`에 다음 의존성을 추가합니다.
@@ -31,7 +31,7 @@ embedded package로 사용할 때는 `Packages/com.olivecrow.unity-agent-coordin
 
 - **Coplay Unity MCP:** 호환되는 `com.coplaydev.unity-mcp`를 설치하면 선택형 어셈블리가 연결 시 `manage_unity_agent_coordination`과 `get_unity_agent_coordination`을 자동 등록합니다.
 - **다른 Unity MCP:** Editor 어댑터에서 JSON 객체를 `UnityAgentCoordinationCommandRouter.Execute(JObject)` 또는 `ExecuteJson(string)`으로 전달하고 결과를 그대로 반환하면 됩니다.
-- **Codex:** `Skills~/unity-agent-coordination/SKILL.md`를 설치하거나 프로젝트 지침에서 참조합니다. Editor 영향 작업으로 스킬이 활성화되면 기존 패키지 소스와 버전은 그대로 사용하고, 패키지가 없을 때만 태그가 지정된 `v0.2.0` Git UPM 의존성을 추가합니다.
+- **Codex:** Unity에서 패키지를 임포트하고 컴파일하면 `Skills~/unity-agent-coordination`이 해당 프로젝트의 `.agents/skills/unity-agent-coordination`에 자동 등록됩니다. 스킬은 그 프로젝트에만 적용되며 전역 스킬 설치나 `AGENTS.md` 수정은 필요하지 않습니다. 패키지 업데이트 시 수정되지 않은 관리 파일을 갱신하고, Package Manager에서 제거하면 정리합니다. 사용자 수정은 경고와 함께 보존합니다. 기존 전역 설치 전환과 이전 패키지 버전는 [에이전트 설정](Documentation~/agent-setup.ko.md)을 참고하세요.
 - **Claude Code 및 다른 에이전트:** 프로젝트의 에이전트 지침 파일에서 패키지 문서를 연결하고, 선택한 Unity MCP 어댑터를 통해 명령 라우터를 노출합니다.
 
 MCP 프로토콜 자체에는 임의 Unity 패키지 도구를 공통 방식으로 자동 발견하는 규격이 없습니다. 선택한 MCP가 Editor C# API를 일반적으로 호출하는 기능을 제공하지 않는다면 어댑터가 필요합니다. 에이전트가 상태 파일을 직접 편집해 어댑터를 흉내 내면 안 됩니다.
@@ -55,9 +55,9 @@ Editor 점유 lease와 검증 lease는 동시에 활성화될 수 없습니다. 
 
 현재 세션과 claim, Editor 점유 요청, owner, 검증 대기열은 `Window > AI Agent Coordination`에서 확인할 수 있습니다.
 
-## 개발과 검증
+## 개발 및 검증
 
-Editor 테스트는 `Tests`에 있습니다. 변경 후 JSON과 asmdef, Unity 컴파일, EditMode 테스트, Coplay 설치·미설치 상태의 선택형 어댑터를 확인합니다. 현재 릴리스는 Unity `6000.3.22f1`에서 테스트했으며 더 넓은 Unity 버전 호환을 주장하지 않습니다.
+`Tests`에 Editor 테스트가 포함되어 있습니다. 릴리스 검증에서는 파일시스템과 조정 로직 테스트를 격리된 .NET harness로 실행하고, Core·Editor·테스트 및 선택형 Coplay 어댑터를 Unity `6000.3.22f1` 참조 어셈블리로 컴파일합니다. Coplay `10.1.2` 유무에 따른 어셈블리 경계도 확인합니다. 새 프로젝트 스킬 등록 기능의 실제 Unity import·패키지 제거 callback과 Unity Test Runner 실행은 아직 검증하지 않았으며, 다른 Unity 버전에 대한 호환성은 보장하지 않습니다.
 
 ## 라이선스
 
