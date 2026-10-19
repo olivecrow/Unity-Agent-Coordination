@@ -2,8 +2,7 @@
   "name": "Olivecrow.UnityAgentCoordination.Editor",
   "rootNamespace": "Olivecrow.UnityAgentCoordination.Editor",
   "references": [
-    "Olivecrow.UnityAgentCoordination.Core",
-    "UnityEditor.TestRunner"
+    "Olivecrow.UnityAgentCoordination.Core"
   ],
   "includePlatforms": [
     "Editor"

@@ -1,357 +1,219 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace Olivecrow.UnityAgentCoordination.Tests
 {
     public sealed class CoordinationServiceTests
     {
-        private const string Sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        private string previousStateRoot;
-        private string fixtureRoot;
-        private string repositoryRoot;
-        private string workerWorktree;
+        private string root;
         private CoordinationStore store;
         private CoordinationService service;
 
         [SetUp]
         public void SetUp()
         {
-            fixtureRoot = Path.Combine(Path.GetTempPath(), "UnityAgentCoordinationTests",
-                Guid.NewGuid().ToString("N"));
-            repositoryRoot = Path.Combine(fixtureRoot, "repository");
-            workerWorktree = Path.Combine(fixtureRoot, "worker");
-            Directory.CreateDirectory(Path.Combine(repositoryRoot, ".git", "refs", "heads"));
-            File.WriteAllText(Path.Combine(repositoryRoot, ".git", "HEAD"), "ref: refs/heads/main\n");
-            File.WriteAllText(Path.Combine(repositoryRoot, ".git", "refs", "heads", "main"), Sha + "\n");
-
-            string workerGit = Path.Combine(repositoryRoot, ".git", "worktrees", "worker");
-            Directory.CreateDirectory(workerGit);
-            Directory.CreateDirectory(workerWorktree);
-            File.WriteAllText(Path.Combine(workerWorktree, ".git"), "gitdir: " + workerGit + "\n");
-            File.WriteAllText(Path.Combine(workerGit, "commondir"), "../..\n");
-            File.WriteAllText(Path.Combine(workerGit, "HEAD"), Sha + "\n");
-
-            previousStateRoot = Environment.GetEnvironmentVariable("UNITY_AGENT_COORDINATOR_ROOT");
-            Environment.SetEnvironmentVariable("UNITY_AGENT_COORDINATOR_ROOT", Path.Combine(fixtureRoot, "state"));
-            store = new CoordinationStore(repositoryRoot);
-            service = new CoordinationService(store);
+            root = Path.Combine(Path.GetTempPath(), "editor-ticket-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            store = new CoordinationStore(root);
+            service = new CoordinationService(store, () => new DateTime(2026, 10, 19, 0, 0, 0, DateTimeKind.Utc));
         }
 
         [TearDown]
-        public void TearDown()
-        {
-            Environment.SetEnvironmentVariable("UNITY_AGENT_COORDINATOR_ROOT", previousStateRoot);
-            if (Directory.Exists(fixtureRoot))
-            {
-                Directory.Delete(fixtureRoot, true);
-            }
-        }
+        public void TearDown() { store.Dispose(); Directory.Delete(root, true); }
 
         [Test]
-        public void WorktreesShareRepositoryIdentity()
+        public void EmptyStatusDoesNotCreateStateFiles()
         {
-            Assert.That(RepositoryIdentity.ResolveRepositoryId(repositoryRoot),
-                Is.EqualTo(RepositoryIdentity.ResolveRepositoryId(workerWorktree)));
-            Assert.That(RepositoryIdentity.TryReadHeadSha(workerWorktree), Is.EqualTo(Sha));
-        }
-
-        [Test]
-        public void ParentAndChildScopesConflictAcrossAgents()
-        {
-            service.BeginWork("worker-a", CoordinationRoles.Worker, workerWorktree, Sha, "A",
-                new[] { "Assets/Feature" });
-            string secondWorktree = CreateAdditionalWorktree("worker-b");
-
-            CoordinationException exception = Assert.Throws<CoordinationException>(() =>
-                service.BeginWork("worker-b", CoordinationRoles.Worker, secondWorktree, Sha, "B",
-                    new[] { "Assets/Feature/Subfolder" }));
-
-            Assert.That(exception.Code, Is.EqualTo("scope_conflict"));
-        }
-
-        [Test]
-        public void WorkMetadataIsRecordedAndHeartbeatUpdatesTheCurrentPhase()
-        {
-            AgentRecord agent = service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha,
-                "Inspect package structure", new[] { "Packages/Feature" }, "package", AgentWorkPhases.Inspecting);
-
-            Assert.That(agent.WorkKind, Is.EqualTo("package"));
-            Assert.That(agent.Phase, Is.EqualTo(AgentWorkPhases.Inspecting));
-            Assert.That(agent.Summary, Is.EqualTo("Inspect package structure"));
-
-            agent = service.Heartbeat("worker", null, "Implement Editor UI", AgentWorkPhases.Working);
-
-            Assert.That(agent.WorkKind, Is.EqualTo("package"));
-            Assert.That(agent.Phase, Is.EqualTo(AgentWorkPhases.Working));
-            Assert.That(agent.Summary, Is.EqualTo("Implement Editor UI"));
-        }
-
-        [Test]
-        public void SameAgentAndHeadCanRegisterIndependentSessions()
-        {
-            string secondWorktree = CreateAdditionalWorktree("worker-session-b");
-
-            AgentRecord first = service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha,
-                "First session", new[] { "Assets/FeatureA" }, sessionId: "session-a");
-            AgentRecord second = service.BeginWork("codex", CoordinationRoles.Worker, secondWorktree, Sha,
-                "Second session", new[] { "Assets/FeatureB" }, sessionId: "session-b");
-
-            Assert.That(first.AgentId, Is.EqualTo(second.AgentId));
-            Assert.That(first.HeadSha, Is.EqualTo(second.HeadSha));
-            Assert.That(first.SessionId, Is.Not.EqualTo(second.SessionId));
-            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State.Agents,
-                Has.Count.EqualTo(2));
-
-            string firstValidation = service.EnqueueValidation("codex", Sha, "First candidate",
-                Array.Empty<string>(), Array.Empty<string>(), "session-a");
-            string secondValidation = service.EnqueueValidation("codex", Sha, "Second candidate",
-                Array.Empty<string>(), Array.Empty<string>(), "session-b");
-            Assert.That(firstValidation, Is.Not.EqualTo(secondValidation));
-
-            CoordinationException exception = Assert.Throws<CoordinationException>(() =>
-                service.Claim("codex", new[] { "Assets/FeatureA/Subfolder" }, "session-b"));
-            Assert.That(exception.Code, Is.EqualTo("scope_conflict"));
-        }
-
-        [Test]
-        public void LegacyStateUsesAgentIdsAsSessionIdsWhenRead()
-        {
-            Directory.CreateDirectory(store.StateRoot);
-            File.WriteAllText(store.StatePath,
-                "{\"SchemaVersion\":1,\"Agents\":[{\"AgentId\":\"legacy-worker\"}]," +
-                "\"Claims\":[{\"AgentId\":\"legacy-worker\",\"Scope\":\"assets/legacy\"}]," +
-                "\"ValidationRequests\":[{\"RequestId\":\"legacy-request\",\"AgentId\":\"legacy-worker\"}]}");
-
-            CoordinationState state = store.ReadState();
-
-            Assert.That(state.SchemaVersion, Is.EqualTo(CoordinationSchema.CurrentVersion));
-            Assert.That(state.Agents[0].SessionId, Is.EqualTo("legacy-worker"));
-            Assert.That(state.Claims[0].SessionId, Is.EqualTo("legacy-worker"));
-            Assert.That(state.ValidationRequests[0].SessionId, Is.EqualTo("legacy-worker"));
-        }
-
-        [Test]
-        public void EditorAccessScopesMustAlreadyBeClaimedByTheSession()
-        {
-            service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha, "work",
-                new[] { "Assets/Claimed" }, sessionId: "session-a");
-
-            CoordinationException exception = Assert.Throws<CoordinationException>(() =>
-                service.EnqueueEditorAccess("codex", null, "edit scene", new[] { "scene_edit" },
-                    new[] { "Assets/Other" }, sessionId: "session-a"));
-
-            Assert.That(exception.Code, Is.EqualTo("scope_not_claimed"));
-            Assert.DoesNotThrow(() => service.EnqueueEditorAccess("codex", null, "inspect console",
-                new[] { "console" }, Array.Empty<string>(), sessionId: "session-a"));
-        }
-
-        [Test]
-        public void EditorAccessQueueIsSessionScopedFifoAndDoesNotRequireACommit()
-        {
-            string secondWorktree = CreateAdditionalWorktree("worker-session-b");
-            service.BeginWork("codex", CoordinationRoles.Worker, workerWorktree, Sha, "First session",
-                new[] { "Assets/FeatureA" }, sessionId: "session-a");
-            service.BeginWork("codex", CoordinationRoles.Worker, secondWorktree, Sha, "Second session",
-                new[] { "Assets/FeatureB" }, sessionId: "session-b");
-
-            string firstRequest = service.EnqueueEditorAccess("codex", null, "Compile uncommitted work",
-                new[] { "import", "compile", "console" }, new[] { "Assets/FeatureA" },
-                sessionId: "session-a");
-            string idempotentRetry = service.EnqueueEditorAccess("codex", null,
-                "Compile uncommitted work", new[] { "compile" }, Array.Empty<string>(), "compile-a",
-                "session-a");
-            string sameRetry = service.EnqueueEditorAccess("codex", Sha,
-                "Changed retry payload", new[] { "playmode" }, Array.Empty<string>(), "compile-a",
-                "session-a");
-            string secondRequest = service.EnqueueEditorAccess("codex", Sha, "Open Play Mode",
-                new[] { "playmode" }, new[] { "Assets/FeatureB" }, sessionId: "session-b");
-
-            Assert.That(firstRequest, Is.Not.EqualTo(secondRequest));
-            Assert.That(idempotentRetry, Is.EqualTo(sameRetry));
-            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State
-                .FindEditorAccessRequest(firstRequest).BaseHeadSha, Is.Null);
-
-            CoordinationException outOfOrder = Assert.Throws<CoordinationException>(() =>
-                service.AcquireEditorAccess("codex", secondRequest, "session-b"));
-            Assert.That(outOfOrder.Code, Is.EqualTo("request_not_next"));
-
-            EditorAccessRequest active = service.AcquireEditorAccess("codex", firstRequest, "session-a");
-            Assert.That(active.State, Is.EqualTo(EditorAccessStates.Active));
-            service.FinishEditorAccess("codex", firstRequest, "compiled", "session-a");
-            CoordinationException completedCancel = Assert.Throws<CoordinationException>(() =>
-                service.CancelEditorAccessRequest("codex", firstRequest, "too late", "session-a"));
-            Assert.That(completedCancel.Code, Is.EqualTo("request_not_cancelable"));
-
-            active = service.AcquireEditorAccess("codex", idempotentRetry, "session-a");
-            Assert.That(active.RequestId, Is.EqualTo(idempotentRetry));
-            service.CancelEditorAccessRequest("codex", idempotentRetry, "not needed", "session-a");
-
-            active = service.AcquireEditorAccess("codex", secondRequest, "session-b");
-            Assert.That(active.SessionId, Is.EqualTo("session-b"));
-            service.FinishEditorAccess("codex", secondRequest, null, "session-b");
-
-            service.FinishWork("codex", "session-a");
-            service.FinishWork("codex", "session-b");
-            Assert.That(store.HasCoordinationState, Is.False);
-        }
-
-        [Test]
-        public void EditorAccessAndExactShaValidationLeasesAreMutuallyExclusive()
-        {
-            string validationWorktree = CreateAdditionalWorktree("validation-worker");
-            service.BeginWork("access-worker", CoordinationRoles.Worker, workerWorktree, Sha, "access",
-                new[] { "Assets/Access" });
-            service.BeginWork("validation-worker", CoordinationRoles.Worker, validationWorktree, Sha,
-                "validation", new[] { "Assets/Validation" });
-            service.BeginWork("integrator", CoordinationRoles.Integrator, repositoryRoot, Sha, "integrate",
-                Array.Empty<string>());
-
-            string accessRequest = service.EnqueueEditorAccess("access-worker", null, "compile",
-                new[] { "compile" }, new[] { "Assets/Access" });
-            string validationRequest = service.EnqueueValidation("validation-worker", Sha, "validate",
-                Array.Empty<string>(), Array.Empty<string>());
-            service.AcquireEditorAccess("access-worker", accessRequest);
-
-            CoordinationException validationBlocked = Assert.Throws<CoordinationException>(() =>
-                service.AcquireValidation("integrator", validationRequest, Sha));
-            Assert.That(validationBlocked.Code, Is.EqualTo("editor_access_busy"));
-
-            service.FinishEditorAccess("access-worker", accessRequest, null);
-            service.AcquireValidation("integrator", validationRequest, Sha);
-            string secondAccessRequest = service.EnqueueEditorAccess("access-worker", null, "console",
-                new[] { "console" }, Array.Empty<string>());
-
-            CoordinationException accessBlocked = Assert.Throws<CoordinationException>(() =>
-                service.AcquireEditorAccess("access-worker", secondAccessRequest));
-            Assert.That(accessBlocked.Code, Is.EqualTo("validation_busy"));
-        }
-
-        [Test]
-        public void ValidationIsSerialAndStateDisappearsAfterAllWorkFinishes()
-        {
-            service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "candidate",
-                new[] { "Assets/Feature" });
-            service.BeginWork("integrator", CoordinationRoles.Integrator, repositoryRoot, Sha, "validate",
-                Array.Empty<string>());
-            string requestId = service.EnqueueValidation("worker", Sha, "candidate",
-                Array.Empty<string>(), Array.Empty<string>());
-
-            ValidationRequest request = service.AcquireValidation("integrator", requestId, Sha);
-            Assert.That(request.State, Is.EqualTo(ValidationStates.Running));
-            Assert.Throws<CoordinationException>(() =>
-                service.AcquireValidation("integrator", requestId, Sha));
-
-            service.MarkCompilationFinished(requestId);
-            request = service.FinishValidation("integrator", requestId, true, "ok");
-            Assert.That(request.State, Is.EqualTo(ValidationStates.Passed));
-
-            service.FinishWork("worker");
-            service.FinishWork("integrator");
-            Assert.That(store.HasCoordinationState, Is.False);
-        }
-
-        [Test]
-        public void ValidationLifecycleUpdatesWorkerAndIntegratorPhases()
-        {
-            service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "candidate",
-                new[] { "Assets/Feature" }, "code", AgentWorkPhases.Working);
-            service.BeginWork("integrator", CoordinationRoles.Integrator, repositoryRoot, Sha, "validate",
-                Array.Empty<string>(), "validation", AgentWorkPhases.Inspecting);
-
-            string requestId = service.EnqueueValidation("worker", Sha, "candidate",
-                Array.Empty<string>(), Array.Empty<string>());
-            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State.Agents
-                .Find(agent => agent.AgentId == "worker").Phase, Is.EqualTo(AgentWorkPhases.WaitingValidation));
-
-            service.AcquireValidation("integrator", requestId, Sha);
-            Assert.That(service.GetStatus(Array.Empty<string>(), null, null).State.Agents
-                .Find(agent => agent.AgentId == "integrator").Phase, Is.EqualTo(AgentWorkPhases.Validating));
-
-            service.MarkCompilationFinished(requestId);
-            service.FinishValidation("integrator", requestId, true, "ok");
-            CoordinationState state = service.GetStatus(Array.Empty<string>(), null, null).State;
-            Assert.That(state.Agents.Find(agent => agent.AgentId == "worker").Phase,
-                Is.EqualTo(AgentWorkPhases.Finalizing));
-            Assert.That(state.Agents.Find(agent => agent.AgentId == "integrator").Phase,
-                Is.EqualTo(AgentWorkPhases.Finalizing));
-        }
-
-        [Test]
-        public void StatusPrunesStaleAgentClaimsAndQueuedValidation()
-        {
-            service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "abandoned",
-                new[] { "Assets/Feature" });
-            service.EnqueueValidation("worker", Sha, "abandoned", Array.Empty<string>(), Array.Empty<string>());
-            store.Mutate(state =>
-            {
-                state.Agents[0].HeartbeatUtc = DateTime.UtcNow.AddMinutes(-46);
-                return true;
-            });
-
-            CoordinationSnapshot snapshot = service.GetStatus(Array.Empty<string>(), null, null);
-
-            Assert.That(snapshot.State.Agents, Is.Empty);
-            Assert.That(snapshot.State.Claims, Is.Empty);
-            Assert.That(snapshot.State.ValidationRequests, Is.Empty);
-            Assert.That(store.HasCoordinationState, Is.False);
-        }
-
-        [Test]
-        public void EditorReleaseClearsOwnerAndCoordinationFiles()
-        {
-            string sessionId = Guid.NewGuid().ToString("N");
-            Assert.That(store.TryAcquireEditor(new EditorOwnerRecord
-            {
-                SessionId = sessionId,
-                ProjectPath = repositoryRoot,
-                UnityVersion = "test",
-                ProcessId = 1,
-                StartedUtc = DateTime.UtcNow,
-                HeartbeatUtc = DateTime.UtcNow
-            }, TimeSpan.FromMinutes(1)), Is.True);
-            service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "work",
-                new[] { "Assets/Feature" });
-
-            store.ReleaseEditorAndClear(sessionId);
-
-            Assert.That(File.Exists(store.EditorOwnerPath), Is.False);
+            Assert.That(service.GetStatus().Tickets, Is.Empty);
             Assert.That(File.Exists(store.StatePath), Is.False);
         }
 
         [Test]
-        public void EditorOwnershipHandoffPreservesWorkerCoordinationState()
+        public void FullCycleNeedsOnlySessionAndTicketWithoutVcsOrExecutables()
         {
-            string sessionId = Guid.NewGuid().ToString("N");
-            Assert.That(store.TryAcquireEditor(new EditorOwnerRecord
+            Directory.CreateDirectory(Path.Combine(root, ".plastic"));
+            string previousPath = Environment.GetEnvironmentVariable("PATH");
+            try
             {
-                SessionId = sessionId,
-                ProjectPath = repositoryRoot,
-                UnityVersion = "test",
-                ProcessId = 1,
-                StartedUtc = DateTime.UtcNow,
-                HeartbeatUtc = DateTime.UtcNow
-            }, TimeSpan.FromMinutes(1)), Is.True);
-            service.BeginWork("worker", CoordinationRoles.Worker, workerWorktree, Sha, "work",
-                new[] { "Assets/Feature" });
-
-            store.ReleaseEditorOwnership(sessionId);
-
-            Assert.That(File.Exists(store.EditorOwnerPath), Is.False);
-            Assert.That(File.Exists(store.StatePath), Is.True);
-            Assert.That(store.ReadState().Agents, Has.Count.EqualTo(1));
+                Environment.SetEnvironmentVariable("PATH", string.Empty);
+                EditorTicket ticket = service.Enqueue("ai-task");
+                Assert.That(service.Acquire("ai-task", ticket.TicketId).State, Is.EqualTo(TicketStates.Active));
+                Assert.That(service.Release("ai-task", ticket.TicketId).State, Is.EqualTo(TicketStates.Released));
+                Assert.That(service.GetStatus().Tickets, Is.Empty);
+                Assert.That(Directory.Exists(Path.Combine(root, ".git")), Is.False);
+            }
+            finally { Environment.SetEnvironmentVariable("PATH", previousPath); }
         }
 
-        private string CreateAdditionalWorktree(string name)
+        [Test]
+        public void DistinctSessionsReceiveDistinctOrderedTicketsEvenAtTheSameTime()
         {
-            string path = Path.Combine(fixtureRoot, name);
-            string gitPath = Path.Combine(repositoryRoot, ".git", "worktrees", name);
-            Directory.CreateDirectory(path);
-            Directory.CreateDirectory(gitPath);
-            File.WriteAllText(Path.Combine(path, ".git"), "gitdir: " + gitPath + "\n");
-            File.WriteAllText(Path.Combine(gitPath, "commondir"), "../..\n");
-            File.WriteAllText(Path.Combine(gitPath, "HEAD"), Sha + "\n");
-            return path;
+            EditorTicket a = service.Enqueue("session-a");
+            EditorTicket b = service.Enqueue("session-b");
+            Assert.That(a.TicketId, Is.Not.EqualTo(b.TicketId));
+            Assert.That(b.Number, Is.GreaterThan(a.Number));
+            Assert.That(a.IssuedUtc, Is.EqualTo(b.IssuedUtc));
+            Assert.That(service.GetStatus().NextTicketId, Is.EqualTo(a.TicketId));
+        }
+
+        [Test]
+        public void EnqueueRetryReturnsTheSessionsOutstandingTicket()
+        {
+            EditorTicket ticket = service.Enqueue("session-a", "first label");
+            Assert.That(service.Enqueue("session-a", "retry label").TicketId, Is.EqualTo(ticket.TicketId));
+            service.Acquire("session-a", ticket.TicketId);
+            Assert.That(service.Enqueue("session-a").TicketId, Is.EqualTo(ticket.TicketId));
+            Assert.That(service.GetStatus().Tickets, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void LaterTicketCannotJumpTheQueue()
+        {
+            service.Enqueue("a");
+            EditorTicket b = service.Enqueue("b");
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Acquire("b", b.TicketId)).Code,
+                Is.EqualTo("not_your_turn"));
+        }
+
+        [Test]
+        public void ActiveTicketBlocksOthersUntilItIsReturned()
+        {
+            EditorTicket a = service.Enqueue("a");
+            EditorTicket b = service.Enqueue("b");
+            service.Acquire("a", a.TicketId);
+            Assert.That(service.GetStatus().NextTicketId, Is.Null);
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Acquire("b", b.TicketId)).Code,
+                Is.EqualTo("editor_busy"));
+            service.Release("a", a.TicketId);
+            Assert.That(service.GetStatus().NextTicketId, Is.EqualTo(b.TicketId));
+            Assert.That(service.Acquire("b", b.TicketId).State, Is.EqualTo(TicketStates.Active));
+        }
+
+        [Test]
+        public void AnotherSessionCannotAcquireReturnOrCancelYourTicket()
+        {
+            EditorTicket a = service.Enqueue("a");
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Acquire("b", a.TicketId)).Code, Is.EqualTo("not_ticket_owner"));
+            service.Acquire("a", a.TicketId);
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Release("b", a.TicketId)).Code, Is.EqualTo("not_ticket_owner"));
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Cancel("b", a.TicketId)).Code, Is.EqualTo("not_ticket_owner"));
+            Assert.That(service.GetStatus().ActiveTicketId, Is.EqualTo(a.TicketId));
+        }
+
+        [Test]
+        public void ReadinessBlocksNewAcquisitionButAllowsTheOwnersRetry()
+        {
+            EditorTicket a = service.Enqueue("a");
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Acquire("a", a.TicketId, () => false)).Code, Is.EqualTo("editor_busy"));
+            Assert.That(service.GetStatus().NextTicketId, Is.EqualTo(a.TicketId));
+            service.Acquire("a", a.TicketId, () => true);
+            Assert.That(service.Acquire("a", a.TicketId, () => false).State, Is.EqualTo(TicketStates.Active));
+        }
+
+        [Test]
+        public void WaitingTicketMustBeCanceledInsteadOfReturned()
+        {
+            EditorTicket a = service.Enqueue("a");
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Release("a", a.TicketId)).Code, Is.EqualTo("ticket_not_active"));
+            service.Cancel("a", a.TicketId);
+            Assert.That(service.GetStatus().Tickets, Is.Empty);
+        }
+
+        [Test]
+        public void CancelingAnAbandonedActiveTicketLetsTheNextSessionProceed()
+        {
+            EditorTicket a = service.Enqueue("a");
+            EditorTicket b = service.Enqueue("b");
+            service.Acquire("a", a.TicketId);
+            service.Cancel("a", a.TicketId);
+            Assert.That(service.Acquire("b", b.TicketId).State, Is.EqualTo(TicketStates.Active));
+        }
+
+        [Test]
+        public void CompletedSessionCanDrawANewTicketWithoutASeparateWorkLifecycle()
+        {
+            EditorTicket a = service.Enqueue("a");
+            service.Acquire("a", a.TicketId);
+            service.Release("a", a.TicketId);
+            EditorTicket next = service.Enqueue("a");
+            Assert.That(next.TicketId, Is.Not.EqualTo(a.TicketId));
+            Assert.That(next.Number, Is.GreaterThan(a.Number));
+            Assert.That(service.GetStatus().Tickets, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void ReloadingTheServicePreservesTheActiveTicketAndWaitingOrder()
+        {
+            EditorTicket a = service.Enqueue("a");
+            EditorTicket b = service.Enqueue("b");
+            service.Acquire("a", a.TicketId);
+            store.Dispose();
+            store = new CoordinationStore(root);
+            service = new CoordinationService(store);
+            Assert.That(service.GetStatus().ActiveTicketId, Is.EqualTo(a.TicketId));
+            service.Release("a", a.TicketId);
+            Assert.That(service.Acquire("b", b.TicketId).State, Is.EqualTo(TicketStates.Active));
+        }
+
+        [Test]
+        public void ProjectFoldersHaveIndependentQueues()
+        {
+            service.Enqueue("same-session");
+            using (var otherStore = new CoordinationStore(Path.Combine(root, "other-project")))
+            {
+                var other = new CoordinationService(otherStore);
+                Assert.That(other.GetStatus().Tickets, Is.Empty);
+                EditorTicket ticket = other.Enqueue("same-session");
+                Assert.That(other.Acquire("same-session", ticket.TicketId).State, Is.EqualTo(TicketStates.Active));
+            }
+            Assert.That(service.GetStatus().ActiveTicketId, Is.Null);
+        }
+
+        [Test]
+        public void ConcurrentStoreInstancesIssueUniqueSequentialNumbers()
+        {
+            Parallel.For(0, 24, index =>
+            {
+                using (var concurrent = new CoordinationStore(root))
+                    new CoordinationService(concurrent).Enqueue("session-" + index);
+            });
+            long[] numbers = service.GetStatus().Tickets.Select(ticket => ticket.Number).ToArray();
+            Assert.That(numbers, Is.EqualTo(Enumerable.Range(1, 24).Select(number => (long)number).ToArray()));
+        }
+
+        [Test]
+        public void CorruptStateFailsClosedAndIsNotOverwritten()
+        {
+            service.Enqueue("a");
+            File.WriteAllText(store.StatePath, "broken json");
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Enqueue("b")).Code, Is.EqualTo("state_corrupt"));
+            Assert.That(File.ReadAllText(store.StatePath), Is.EqualTo("broken json"));
+        }
+
+        [Test]
+        public void MultipleActiveTicketsAreRejectedInsteadOfGrantingConcurrentAccess()
+        {
+            service.Enqueue("a");
+            var state = new CoordinationState { NextNumber = 3 };
+            state.Tickets.Add(new EditorTicket { TicketId = "one", Number = 1, SessionId = "a", State = TicketStates.Active, IssuedUtc = DateTime.UtcNow });
+            state.Tickets.Add(new EditorTicket { TicketId = "two", Number = 2, SessionId = "b", State = TicketStates.Active, IssuedUtc = DateTime.UtcNow });
+            File.WriteAllText(store.StatePath, QueueJson.Serialize(state));
+            Assert.That(Assert.Throws<CoordinationException>(() => service.GetStatus()).Code, Is.EqualTo("state_corrupt"));
+        }
+
+        [Test]
+        public void OperatorResetClearsAnAbandonedQueue()
+        {
+            EditorTicket a = service.Enqueue("a");
+            service.Enqueue("b");
+            service.Acquire("a", a.TicketId);
+            service.ResetQueue();
+            Assert.That(service.GetStatus().Tickets, Is.Empty);
+            EditorTicket c = service.Enqueue("c");
+            Assert.That(service.Acquire("c", c.TicketId).State, Is.EqualTo(TicketStates.Active));
         }
     }
 }

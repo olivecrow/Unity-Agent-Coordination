@@ -1,16 +1,12 @@
 {
   "name": "com.olivecrow.unity-agent-coordination",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "displayName": "Unity Agent Coordination",
-  "description": "Coordinates concurrent AI work sessions with commit-optional Unity Editor access and clean exact-commit validation queues.",
+  "description": "A project-local FIFO ticket queue for AI access to one Unity Editor.",
   "type": "tool",
   "author": {
     "name": "olivecrow",
     "url": "https://github.com/olivecrow"
-  },
-  "dependencies": {
-    "com.unity.test-framework": "1.1.31",
-    "com.unity.nuget.newtonsoft-json": "3.0.2"
   },
   "keywords": [
     "ai",

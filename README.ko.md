@@ -2,63 +2,45 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
-여러 AI 작업 세션이 하나의 공유 Unity Editor를 안전하게 사용하도록 조정하는 Editor 전용 UPM 패키지입니다. 세션은 서로 겹치지 않는 저장소 경로를 claim하고 commit 없이도 Editor 점유를 대기열에 넣으며, 하나의 canonical Editor가 별도로 깨끗한 exact-commit 검증을 수행합니다.
+AI가 Unity Editor를 순서대로 사용하기 위한 번호표 도구입니다. **번호표 발급 → 자기 차례까지 대기 → Editor 사용 → 반납**만 수행하며, Unity 프로젝트마다 별도 대기열을 사용합니다.
 
-핵심 조정 엔진은 특정 MCP 구현에 의존하지 않습니다. 공개 C#/JSON 명령 API를 제공하고, MCP 연동은 이 API를 감싸는 어댑터로 분리합니다. Coplay Unity MCP 어댑터가 포함되어 있지만 호환 Coplay 패키지가 설치된 경우에만 컴파일됩니다.
+## 요구 사항과 설치
 
-## 호환성
+Core와 Editor 어셈블리는 Unity와 기본 .NET API만 사용합니다. 필수 UPM 의존성, 외부 실행 파일, 버전 관리 메타데이터, 별도 작업 등록이 없습니다. Git·Unity Version Control·버전 관리를 사용하지 않는 프로젝트 모두 같은 방식으로 동작합니다.
 
-- Unity `6000.3.22f1` 참조 어셈블리를 기준으로 컴파일을 확인합니다. 아래 검증 범위를 참고하세요.
-- 패키지 manifest에는 최소 Unity 버전을 의도적으로 선언하지 않았습니다. 따라서 다른 버전에서도 UPM 설치가 허용될 수 있지만, 실제 테스트 전까지 호환을 보장하지 않습니다.
-- Unity Test Framework와 Unity registry의 `com.unity.nuget.newtonsoft-json` 패키지가 필요합니다. 두 의존성 모두 `package.json`에 선언되어 Unity Package Manager가 자동으로 resolve합니다.
-- Coplay Unity MCP는 선택 사항입니다. 포함된 어댑터는 `com.coplaydev.unity-mcp` `10.1.2` 이상 `11.0.0` 미만을 대상으로 하며 `10.1.2`에서 테스트했습니다.
-
-## 설치
-
-Unity Package Manager의 **Install package from git URL**에 다음 주소를 입력합니다.
-
-```text
-https://github.com/olivecrow/Unity-Agent-Coordination.git#v0.4.0
-```
-
-embedded package로 사용할 때는 `Packages/com.olivecrow.unity-agent-coordination`에 배치하고 소비 프로젝트의 `Packages/manifest.json`에 다음 의존성을 추가합니다.
+Unity Package Manager에서 패키지 `.tgz`를 설치하거나, 이 폴더를 `Packages/com.olivecrow.unity-agent-coordination`에 복사한 뒤 다음 항목을 선언합니다.
 
 ```json
 "com.olivecrow.unity-agent-coordination": "file:com.olivecrow.unity-agent-coordination"
 ```
 
-## MCP와 에이전트 연동
+패키지 import와 컴파일 후 해당 프로젝트의 `.agents/skills/unity-agent-coordination`에 Codex 스킬을 등록합니다. 사용자 수정은 보존하고 패키지가 관리하는 미수정 파일만 갱신하며, 정상적인 Package Manager 제거 시 정리합니다. [에이전트 설정](Documentation~/agent-setup.ko.md)을 참고하세요.
 
-- **Coplay Unity MCP:** 호환되는 `com.coplaydev.unity-mcp`를 설치하면 선택형 어셈블리가 연결 시 `manage_unity_agent_coordination`과 `get_unity_agent_coordination`을 자동 등록합니다.
-- **다른 Unity MCP:** Editor 어댑터에서 JSON 객체를 `UnityAgentCoordinationCommandRouter.Execute(JObject)` 또는 `ExecuteJson(string)`으로 전달하고 결과를 그대로 반환하면 됩니다.
-- **Codex:** Unity에서 패키지를 임포트하고 컴파일하면 `Skills~/unity-agent-coordination`이 해당 프로젝트의 `.agents/skills/unity-agent-coordination`에 자동 등록됩니다. 스킬은 그 프로젝트에만 적용되며 전역 스킬 설치나 `AGENTS.md` 수정은 필요하지 않습니다. 패키지 업데이트 시 수정되지 않은 관리 파일을 갱신하고, Package Manager에서 제거하면 정리합니다. 사용자 수정은 경고와 함께 보존합니다. 기존 전역 설치 전환과 이전 패키지 버전는 [에이전트 설정](Documentation~/agent-setup.ko.md)을 참고하세요.
-- **Claude Code 및 다른 에이전트:** 프로젝트의 에이전트 지침 파일에서 패키지 문서를 연결하고, 선택한 Unity MCP 어댑터를 통해 명령 라우터를 노출합니다.
+## 사용 순서
 
-MCP 프로토콜 자체에는 임의 Unity 패키지 도구를 공통 방식으로 자동 발견하는 규격이 없습니다. 선택한 MCP가 Editor C# API를 일반적으로 호출하는 기능을 제공하지 않는다면 어댑터가 필요합니다. 에이전트가 상태 파일을 직접 편집해 어댑터를 흉내 내면 안 됩니다.
+1. AI 작업마다 고유한 `session_id`를 만들고 `enqueue`를 호출합니다. `ticket_id`와 증가하는 번호를 받습니다. 같은 세션이 재시도하면 아직 보유한 번호표를 돌려줍니다.
+2. `status`를 확인하며 `queue.next_ticket_id`가 자신의 번호표가 될 때까지 대기합니다.
+3. 세션 ID와 번호표로 `acquire`를 호출하고 성공한 뒤에만 Editor를 사용합니다. 사용 중인 번호표가 있으면 다른 번호표는 점유할 수 없습니다.
+4. Editor 작업을 모두 마치면 정리/finally 단계에서 `release`로 반납합니다. 그 다음 순서의 AI가 점유할 수 있습니다.
 
-정확한 설정은 [에이전트 설정](Documentation~/agent-setup.ko.md), 명령 계약은 [통합 프로토콜](Documentation~/mcp-protocol.ko.md)을 참고합니다.
+포기할 때는 `cancel`로 자기 번호표를 취소합니다. 다른 세션의 번호표를 점유·반납·취소할 수 없습니다. 번호표는 자동 만료하지 않습니다. 세션이 끊기면 해당 세션이 반납/취소하거나, 사용자가 이전 세션의 사용 종료를 확인한 뒤 `Window > AI Agent Coordination`에서 방치된 대기열을 명시적으로 초기화합니다.
 
-## 조정 모델
+이 도구는 협조하는 에이전트의 순서를 조정합니다. 다른 bridge 명령을 가로채거나 컴파일·테스트·빌드·버전 관리 작업을 자동 실행하지 않습니다. 상태는 `Library/UnityAgentCoordination/tickets.json`에 보존되어 컴파일과 domain reload를 지나도 유지됩니다. 프로세스 간 mutex와 원자적 파일 교체를 사용하며, 반납된 번호표는 제거하고 작은 번호 카운터만 유지합니다.
 
-- **작업 세션:** `agent_id`는 논리적인 agent나 작업을, 선택형 `session_id`는 하나의 실제 작업 세션을 식별합니다. `session_id`를 생략하면 기존 동작과 호환되도록 `agent_id`를 세션 ID로 사용합니다. 서로 다른 세션은 같은 Git HEAD에서 시작해도 독립적으로 동작합니다.
-- **Editor 점유 대기열:** 등록된 세션은 임의의 Editor 작업 묶음을 하나 이상 대기열에 넣을 수 있습니다. 각 요청은 고유 `request_id`를 받으며 `base_head_sha`는 선택형 진단 정보일 뿐입니다. 요청에 scope를 넣는다면 해당 세션의 claim 범위 안이어야 합니다. dirty working tree와 commit 전 작업도 허용되고 FIFO 선두 요청의 소유 세션만 공유 lease를 획득합니다.
-- **검증 대기열:** exact-SHA 검증은 worker와 integrator 사이의 별도 흐름으로 유지됩니다. commit된 candidate와 요청 HEAD가 일치하는 깨끗한 canonical checkout이 필요합니다.
+## AI 연결
 
-Editor 점유 lease와 검증 lease는 동시에 활성화될 수 없습니다. 점유 lease는 canonical Editor를 사용할 권한만 부여하며 다른 worktree의 미커밋 변경을 복사하거나 요청 작업을 자동 실행하지 않습니다.
+공개 C#/JSON 진입점은 `UnityAgentCoordinationCommandRouter.ExecuteJson(string)`입니다. 프로젝트에 이미 있는 Unity bridge가 JSON을 전달하면 되며 특정 MCP provider는 필수가 아닙니다.
 
-## 패키지 어셈블리
+선택형 Coplay 어댑터는 `manage_unity_agent_coordination`과 `get_unity_agent_coordination`을 제공합니다. Coplay `10.1.2` 이상 `11.0.0` 미만이 이미 설치된 경우에만 컴파일되며, 그 어댑터만 Coplay의 기존 JSON 의존성을 사용합니다. Core와 Editor에는 그 의존성이 없습니다.
 
-- `Olivecrow.UnityAgentCoordination.Core`: 저장소 식별, 세션 단위 경로 claim, Editor 점유·검증 대기열, heartbeat, 원자적 상태와 owner lease 데이터.
-- `Olivecrow.UnityAgentCoordination.Editor`: canonical Editor 소유권, Git checkout 검사, 컴파일, 테스트, 상태 창과 전송 중립 명령 라우터.
-- `Olivecrow.UnityAgentCoordination.CoplayMcp`: Coplay가 없거나 지원 범위를 벗어나면 컴파일에서 제외되는 선택형 어댑터.
-- Editor 테스트: 저장소 ID, 같은 HEAD의 다중 세션, claim 충돌, FIFO Editor 점유, 직렬 검증, 상태 표시와 stale owner 복구를 격리된 Git fixture로 검증합니다.
+다섯 가지 명령은 [통합 프로토콜](Documentation~/mcp-protocol.ko.md)을 참고하세요. `Tests`의 선택형 NUnit 테스트는 테스트 환경에서 실행하며 프레임워크를 제품의 필수 패키지로 설치하지 않습니다.
 
-현재 세션과 claim, Editor 점유 요청, owner, 검증 대기열은 `Window > AI Agent Coordination`에서 확인할 수 있습니다.
+## 업그레이드와 검증
 
-## 개발 및 검증
+0.5 프로토콜은 이전 작업 등록·claim·integrator·커밋 검증 API를 대체합니다. 업그레이드 전에 기존 세션을 종료하고 번호표를 반납하세요. 이전 조정 상태는 새 프로젝트 대기열로 가져오지 않습니다.
 
-`Tests`에 Editor 테스트가 포함되어 있습니다. 릴리스 검증에서는 파일시스템과 조정 로직 테스트를 격리된 .NET harness로 실행하고, Core·Editor·테스트 및 선택형 Coplay 어댑터를 Unity `6000.3.22f1` 참조 어셈블리로 컴파일합니다. Coplay `10.1.2` 유무에 따른 어셈블리 경계도 확인합니다. 새 프로젝트 스킬 등록 기능의 실제 Unity import·패키지 제거 callback과 Unity Test Runner 실행은 아직 검증하지 않았으며, 다른 Unity 버전에 대한 호환성은 보장하지 않습니다.
+Unity `6000.3.22f1` 참조 어셈블리 컴파일을 확인하고, 버전 관리 파일과 외부 실행 파일 없이 전체 JSON 번호표 생명주기를 격리 테스트합니다. 참조 컴파일과 격리 테스트는 실제 Unity import/callback 및 Unity Test Runner 검증을 대신하지 않습니다. 다른 Unity 버전은 검증하지 않았습니다.
 
 ## 라이선스
 
-MIT License를 사용합니다. 자세한 내용은 [LICENSE.md](LICENSE.md)를 참고합니다.
+MIT. [LICENSE.md](LICENSE.md)를 참고하세요.

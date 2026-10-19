@@ -2,6 +2,15 @@
 
 [English](CHANGELOG.md) | [한국어](CHANGELOG.ko.md)
 
+## 0.5.0 - 2026-10-19
+
+- 이전 조정 시스템을 프로젝트별 FIFO 번호표 하나로 교체했습니다. 명령은 enqueue·status·acquire·release·cancel뿐입니다.
+- 작업 등록·리비전 입력·저장소/worktree 식별·경로 claim·역할·Editor owner handoff와 별도 컴파일/테스트/커밋 검증 실행기를 제거했습니다.
+- 필수 Newtonsoft JSON·Unity Test Framework 의존성을 제거하고 Unity와 기본 .NET API만 사용합니다. Coplay는 선택형 연결 어댑터입니다.
+- domain reload 중에도 점유를 보존하고 프로세스 간 잠금 안에서 번호 순서를 정합니다. 번호표는 자동 만료하지 않습니다.
+- 버전 관리가 없는 JSON 전체 생명주기, 소유권, 취소, 동시 요청, 상태 복원, 프로젝트 격리를 회귀 테스트합니다.
+- 호환성 변경: 이전 명령 schema와 조정 상태는 가져오지 않습니다. 업그레이드 전에 이전 세션을 종료해야 합니다.
+
 ## 0.4.0 - 2026-10-18
 
 - Unity 패키지 import 후 Codex 스킬을 해당 프로젝트의 `.agents/skills/unity-agent-coordination`에 자동 등록합니다.

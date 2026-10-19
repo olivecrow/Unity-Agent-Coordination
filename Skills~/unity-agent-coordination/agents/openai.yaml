@@ -1,4 +1,4 @@
 interface:
   display_name: "Unity Agent Coordination"
-  short_description: "Queue shared Unity Editor access and exact-SHA validation"
-  default_prompt: "Use $unity-agent-coordination when this session needs the canonical Unity Editor for compilation, tests, Play Mode, serialized asset changes, builds, diagnosis, or exact-SHA validation. Register a unique session, use the commit-optional FIFO Editor access queue for ordinary stateful work, and reserve the validation queue for clean committed candidates. Apply only in this project with the package installed; do not install, restore, or upgrade the package."
+  short_description: "Take turns using Unity Editor with FIFO tickets"
+  default_prompt: "Use $unity-agent-coordination to enqueue a ticket for this task, wait for your turn, acquire the Editor, and release the ticket after all Editor work finishes. Use only the project-local package and existing bridge."

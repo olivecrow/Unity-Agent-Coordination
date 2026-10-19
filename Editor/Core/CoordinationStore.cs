@@ -1,348 +1,105 @@
 using System;
-using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
-using Newtonsoft.Json;
 
 namespace Olivecrow.UnityAgentCoordination
 {
-    public sealed class CoordinationStore
+    public sealed class CoordinationStore : IDisposable
     {
-        private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
-        private readonly object processGate = new object();
-        private readonly Mutex crossProcessMutex;
+        private readonly object gate = new object();
+        private readonly Mutex mutex;
 
         public CoordinationStore(string projectPath)
         {
+            if (string.IsNullOrWhiteSpace(projectPath)) throw new ArgumentException("A project folder is required.", nameof(projectPath));
             ProjectPath = Path.GetFullPath(projectPath);
-            RepositoryId = RepositoryIdentity.ResolveRepositoryId(ProjectPath);
-            StateRoot = RepositoryIdentity.ResolveStateRoot(ProjectPath);
-            StatePath = Path.Combine(StateRoot, "coordination.json");
-            EditorOwnerPath = Path.Combine(StateRoot, "editor-owner.json");
-            crossProcessMutex = new Mutex(false, "Local\\OlivecrowUnityAgentCoordination_" + RepositoryId);
+            StatePath = Path.Combine(ProjectPath, "Library", "UnityAgentCoordination", "tickets.json");
+            mutex = new Mutex(false, ProjectIdentity.LockName(ProjectPath));
         }
 
         public string ProjectPath { get; }
-        public string RepositoryId { get; }
-        public string StateRoot { get; }
         public string StatePath { get; }
-        public string EditorOwnerPath { get; }
-        public bool HasCoordinationState => File.Exists(StatePath);
 
-        public CoordinationState ReadState()
-        {
-            return WithLock(ReadStateUnsafe);
-        }
+        internal T Read<T>(Func<CoordinationState, T> read) => Locked(() => read(Load()));
 
-        public EditorOwnerRecord ReadEditorOwner()
+        internal T Change<T>(Func<CoordinationState, T> change)
         {
-            return WithLock(() => ReadJsonUnsafe<EditorOwnerRecord>(EditorOwnerPath));
-        }
-
-        public T Mutate<T>(Func<CoordinationState, T> mutation)
-        {
-            return WithLock(() =>
+            return Locked(() =>
             {
-                CoordinationState state = ReadStateUnsafe();
-                T result = mutation(state);
-                state.RepositoryId = RepositoryId;
-                state.UpdatedUtc = DateTime.UtcNow;
-                SaveStateUnsafe(state);
+                CoordinationState state = Load();
+                T result = change(state);
+                Save(state);
                 return result;
             });
         }
 
-        public bool TryAcquireEditor(EditorOwnerRecord proposedOwner, TimeSpan staleAfter)
+        private CoordinationState Load()
         {
-            return TryAcquireEditor(proposedOwner, staleAfter, false);
-        }
-
-        public bool TryRecoverEditor(EditorOwnerRecord proposedOwner, TimeSpan staleAfter)
-        {
-            return TryAcquireEditor(proposedOwner, staleAfter, true);
-        }
-
-        private bool TryAcquireEditor(EditorOwnerRecord proposedOwner, TimeSpan staleAfter,
-            bool requireExistingForeignOwner)
-        {
-            return WithLock(() =>
+            if (!File.Exists(StatePath)) return new CoordinationState();
+            CoordinationState state;
+            try { state = QueueJson.Deserialize<CoordinationState>(File.ReadAllText(StatePath, Encoding.UTF8)); }
+            catch (SerializationException exception)
             {
-                EditorOwnerRecord current = ReadJsonUnsafe<EditorOwnerRecord>(EditorOwnerPath);
-                bool sameSession = current != null && current.SessionId == proposedOwner.SessionId;
-                if (requireExistingForeignOwner && (current == null || sameSession))
-                {
-                    return false;
-                }
-
-                bool heartbeatExpired = current != null &&
-                                        DateTime.UtcNow - current.HeartbeatUtc > staleAfter;
-                bool processExited = current != null && !IsEditorProcessRunning(current);
-                if (!sameSession && current != null && !heartbeatExpired && !processExited)
-                {
-                    return false;
-                }
-
-                Directory.CreateDirectory(StateRoot);
-                WriteJsonAtomically(EditorOwnerPath, proposedOwner);
-                return true;
-            });
-        }
-
-        private static bool IsEditorProcessRunning(EditorOwnerRecord owner)
-        {
-            if (owner.ProcessId <= 0)
-            {
-                return false;
+                throw new CoordinationException("state_corrupt", "Cannot read the ticket queue: " + exception.Message);
             }
 
-            try
+            if (state == null || state.Version != CoordinationState.CurrentVersion || state.NextNumber < 1 ||
+                state.Tickets == null || state.Tickets.Any(ticket => ticket == null ||
+                    string.IsNullOrWhiteSpace(ticket.TicketId) || string.IsNullOrWhiteSpace(ticket.SessionId) ||
+                    ticket.Number < 1 || ticket.Number >= state.NextNumber || ticket.IssuedUtc == default(DateTime) ||
+                    (ticket.State != TicketStates.Waiting && ticket.State != TicketStates.Active)) ||
+                state.Tickets.Select(ticket => ticket.TicketId).Distinct().Count() != state.Tickets.Count ||
+                state.Tickets.Select(ticket => ticket.SessionId).Distinct().Count() != state.Tickets.Count ||
+                state.Tickets.Select(ticket => ticket.Number).Distinct().Count() != state.Tickets.Count ||
+                state.Tickets.Count(ticket => ticket.State == TicketStates.Active) > 1)
             {
-                using (Process process = Process.GetProcessById(owner.ProcessId))
-                {
-                    if (process.HasExited)
-                    {
-                        return false;
-                    }
-
-                    if (owner.StartedUtc == default(DateTime))
-                    {
-                        return true;
-                    }
-
-                    try
-                    {
-                        DateTime processStartedUtc = process.StartTime.ToUniversalTime();
-                        return processStartedUtc <= owner.StartedUtc.ToUniversalTime().AddSeconds(2);
-                    }
-                    catch
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
-            catch
-            {
-                return true;
-            }
-        }
-
-        public void HeartbeatEditor(string sessionId)
-        {
-            WithLock(() =>
-            {
-                EditorOwnerRecord owner = ReadJsonUnsafe<EditorOwnerRecord>(EditorOwnerPath);
-                if (owner != null && owner.SessionId == sessionId)
-                {
-                    owner.HeartbeatUtc = DateTime.UtcNow;
-                    WriteJsonAtomically(EditorOwnerPath, owner);
-                }
-
-                return true;
-            });
-        }
-
-        public void ReleaseEditorAndClear(string sessionId)
-        {
-            WithLock(() =>
-            {
-                EditorOwnerRecord owner = ReadJsonUnsafe<EditorOwnerRecord>(EditorOwnerPath);
-                if (owner == null || owner.SessionId == sessionId)
-                {
-                    DeleteIfExists(StatePath);
-                    DeleteIfExists(EditorOwnerPath);
-                    DeleteDirectoryIfEmpty(StateRoot);
-                }
-
-                return true;
-            });
-        }
-
-        public void ReleaseEditorOwnership(string sessionId)
-        {
-            WithLock(() =>
-            {
-                EditorOwnerRecord owner = ReadJsonUnsafe<EditorOwnerRecord>(EditorOwnerPath);
-                if (owner != null && owner.SessionId == sessionId)
-                {
-                    DeleteIfExists(EditorOwnerPath);
-                    DeleteDirectoryIfEmpty(StateRoot);
-                }
-
-                return true;
-            });
-        }
-
-        public void ClearCoordinationState()
-        {
-            WithLock(() =>
-            {
-                DeleteIfExists(StatePath);
-                DeleteDirectoryIfEmpty(StateRoot);
-                return true;
-            });
-        }
-
-        private CoordinationState ReadStateUnsafe()
-        {
-            CoordinationState state = ReadJsonUnsafe<CoordinationState>(StatePath) ?? new CoordinationState();
-            state.SchemaVersion = CoordinationSchema.CurrentVersion;
-            state.Agents = state.Agents ?? new System.Collections.Generic.List<AgentRecord>();
-            state.Claims = state.Claims ?? new System.Collections.Generic.List<ScopeClaim>();
-            state.EditorAccessRequests = state.EditorAccessRequests ??
-                                         new System.Collections.Generic.List<EditorAccessRequest>();
-            state.ValidationRequests = state.ValidationRequests ?? new System.Collections.Generic.List<ValidationRequest>();
-            foreach (AgentRecord agent in state.Agents)
-            {
-                agent.SessionId = string.IsNullOrWhiteSpace(agent.SessionId) ? agent.AgentId : agent.SessionId;
-            }
-
-            foreach (ScopeClaim claim in state.Claims)
-            {
-                claim.SessionId = string.IsNullOrWhiteSpace(claim.SessionId) ? claim.AgentId : claim.SessionId;
-            }
-
-            foreach (EditorAccessRequest request in state.EditorAccessRequests)
-            {
-                request.SessionId = string.IsNullOrWhiteSpace(request.SessionId)
-                    ? request.AgentId
-                    : request.SessionId;
-                request.Operations = request.Operations ?? new System.Collections.Generic.List<string>();
-                request.Scopes = request.Scopes ?? new System.Collections.Generic.List<string>();
-            }
-
-            if (state.ActiveEditorAccess != null && string.IsNullOrWhiteSpace(state.ActiveEditorAccess.SessionId))
-            {
-                state.ActiveEditorAccess.SessionId = state.ActiveEditorAccess.AgentId;
-            }
-
-            foreach (ValidationRequest request in state.ValidationRequests)
-            {
-                request.SessionId = string.IsNullOrWhiteSpace(request.SessionId)
-                    ? request.AgentId
-                    : request.SessionId;
-                request.TestModes = request.TestModes ?? new System.Collections.Generic.List<string>();
-                request.ManualChecks = request.ManualChecks ?? new System.Collections.Generic.List<string>();
-                request.CompilationErrors = request.CompilationErrors ?? new System.Collections.Generic.List<string>();
-                request.TestFailures = request.TestFailures ?? new System.Collections.Generic.List<string>();
-            }
-
-            if (state.ActiveValidation != null && string.IsNullOrWhiteSpace(state.ActiveValidation.IntegratorSessionId))
-            {
-                state.ActiveValidation.IntegratorSessionId = state.ActiveValidation.IntegratorAgentId;
+                throw new CoordinationException("state_corrupt", "The ticket queue has invalid or unsupported state. Inspect it before resetting the queue.");
             }
 
             return state;
         }
 
-        private void SaveStateUnsafe(CoordinationState state)
+        private void Save(CoordinationState state)
         {
-            if (state.IsEmpty)
-            {
-                DeleteIfExists(StatePath);
-                DeleteDirectoryIfEmpty(StateRoot);
-                return;
-            }
-
-            Directory.CreateDirectory(StateRoot);
-            WriteJsonAtomically(StatePath, state);
-        }
-
-        private static T ReadJsonUnsafe<T>(string path) where T : class
-        {
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
+            string directory = Path.GetDirectoryName(StatePath);
+            Directory.CreateDirectory(directory);
+            string temporary = Path.Combine(directory, "tickets-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
-                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path, Utf8WithoutBom));
-            }
-            catch (Exception exception)
-            {
-                throw new CoordinationException("state_corrupt",
-                    $"Cannot read the coordination state file: {path}. {exception.Message}");
-            }
-        }
-
-        private static void WriteJsonAtomically(string path, object value)
-        {
-            string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            string json = JsonConvert.SerializeObject(value, Formatting.Indented);
-            File.WriteAllText(temporaryPath, json, Utf8WithoutBom);
-            try
-            {
-                if (File.Exists(path))
+                byte[] bytes = Encoding.UTF8.GetBytes(QueueJson.Serialize(state));
+                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    File.Replace(temporaryPath, path, null);
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
                 }
-                else
-                {
-                    File.Move(temporaryPath, path);
-                }
+                if (File.Exists(StatePath)) File.Replace(temporary, StatePath, null);
+                else File.Move(temporary, StatePath);
             }
             finally
             {
-                DeleteIfExists(temporaryPath);
+                if (File.Exists(temporary)) File.Delete(temporary);
             }
         }
 
-        private T WithLock<T>(Func<T> operation)
+        private T Locked<T>(Func<T> operation)
         {
-            lock (processGate)
+            lock (gate)
             {
                 bool acquired = false;
                 try
                 {
-                    try
-                    {
-                        acquired = crossProcessMutex.WaitOne(TimeSpan.FromSeconds(15));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (!acquired)
-                    {
-                        throw new CoordinationException("state_busy", "Could not acquire the coordination state lock within 15 seconds.");
-                    }
-
+                    try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(15)); }
+                    catch (AbandonedMutexException) { acquired = true; }
+                    if (!acquired) throw new CoordinationException("queue_busy", "The queue storage is busy; retry later.");
                     return operation();
                 }
-                finally
-                {
-                    if (acquired)
-                    {
-                        crossProcessMutex.ReleaseMutex();
-                    }
-                }
+                finally { if (acquired) mutex.ReleaseMutex(); }
             }
         }
 
-        private static void DeleteIfExists(string path)
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-
-        private static void DeleteDirectoryIfEmpty(string path)
-        {
-            if (Directory.Exists(path) && Directory.GetFileSystemEntries(path).Length == 0)
-            {
-                Directory.Delete(path);
-            }
-        }
+        public void Dispose() => mutex.Dispose();
     }
 }

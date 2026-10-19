@@ -4,6 +4,15 @@
 
 All notable changes to this package are documented here.
 
+## 0.5.0 - 2026-10-19
+
+- Replace the previous coordination system with one project-local FIFO ticket queue: enqueue, status, acquire, release, and cancel.
+- Remove work registration, revision fields, repository/worktree identity, path claims, roles, Editor-owner handoff, and the separate compilation/test/commit-validation runner.
+- Remove required Newtonsoft JSON and Unity Test Framework package dependencies; Core and Editor use built-in Unity/.NET APIs. Coplay remains an optional transport adapter.
+- Preserve active tickets across domain reload and keep ticket numbers ordered under a cross-process lock. Tickets do not expire automatically.
+- Add no-VCS JSON lifecycle, ownership, cancellation, concurrency, persistence, and project-isolation regression coverage.
+- Breaking change: the old command schema and stored coordination state are not migrated. Stop old sessions before upgrading.
+
 ## 0.4.0 - 2026-10-18
 
 - Automatically register the Codex skill in the consuming project's `.agents/skills/unity-agent-coordination` after Unity imports the package.
