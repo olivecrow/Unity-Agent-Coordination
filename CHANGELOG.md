@@ -4,6 +4,11 @@
 
 All notable changes to this package are documented here.
 
+## 0.5.1 - 2026-11-11
+
+- Scope ticket ownership to one active conversation turn: release active tickets or cancel waiting tickets before a final response or pausing for user input, even when the same conversation will continue.
+- Require cleanup verification, explicit reporting of unresolved cleanup, and a fresh FIFO ticket when resuming. Align the bundled skill, default prompt, English/Korean documentation, and MCP tool descriptions; turn endings are not detected automatically.
+
 ## 0.5.0 - 2026-10-19
 
 - Replace the previous coordination system with one project-local FIFO ticket queue: enqueue, status, acquire, release, and cancel.
