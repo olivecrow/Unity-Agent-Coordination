@@ -19,6 +19,10 @@ namespace Olivecrow.UnityAgentCoordination
         [DataMember(Name = "number")] public long Number { get; set; }
         [DataMember(Name = "session_id")] public string SessionId { get; set; }
         [DataMember(Name = "label")] public string Label { get; set; }
+        [DataMember(Name = "program")] public string Program { get; set; }
+        [DataMember(Name = "model")] public string Model { get; set; }
+        [DataMember(Name = "reasoning_effort")] public string ReasoningEffort { get; set; }
+        [DataMember(Name = "session_name")] public string SessionName { get; set; }
         [DataMember(Name = "state")] public string State { get; set; }
         [DataMember(Name = "issued_utc")] public DateTime IssuedUtc { get; set; }
     }

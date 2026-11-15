@@ -20,7 +20,7 @@ After import and compilation, the package registers its Codex skill in that proj
 
 **Tickets are scoped to one active conversation turn.** Return them as soon as the current Editor work finishes, and always before ending the turn with a final response or suspending work to wait for the user's reply, confirmation, or approval, even if the task will continue in the same conversation. Progress messages and tool waits while continuing the current work do not end the turn. The `session_id` may persist across turns; a ticket must not.
 
-1. Choose a unique `session_id` for this AI task and call `enqueue`. It returns a `ticket_id` and an increasing ticket number. Retrying `enqueue` for that session returns its outstanding ticket; this does not authorize keeping it across turns.
+1. Choose a unique `session_id` for this AI task and call `enqueue` with `program`, `model`, `reasoning_effort`, and `session_name`. Supply verified values or `Unknown` if unavailable; they are self-reported and optional for older clients. It returns a `ticket_id` and an increasing ticket number. Retrying `enqueue` for that session returns its outstanding ticket; this does not authorize keeping it across turns.
 2. Poll `status`. Wait until `queue.next_ticket_id` matches your ticket.
 3. Call `acquire` with your session and ticket. Use the Editor only after success; an active ticket blocks every other ticket.
 4. In cleanup/finally, finish or safely stop Editor operations you started, then `release` your active ticket or `cancel` your waiting ticket, including on failure and before ending the turn or waiting for user input. The next waiting session may then acquire its ticket.

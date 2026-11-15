@@ -42,6 +42,21 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [Test]
+        public void EnqueueMetadataSurvivesStorageAndStatusAndRetryKeepsOriginal()
+        {
+            const string json = "{\"action\":\"enqueue\",\"session_id\":\"a\",\"program\":\"Codex\",\"model\":\"Model A\",\"reasoning_effort\":\"high\",\"session_name\":\"씬 작업\"}";
+            CoordinationCommandResult issued = CoordinationProtocol.ExecuteJson(json, service);
+            Assert.That(issued.Success, Is.True);
+            CoordinationCommandResult status = CoordinationProtocol.ExecuteJson("{\"action\":\"status\"}", service);
+            EditorTicket ticket = QueueJson.Deserialize<CoordinationCommandResult>(status.ToJson()).Queue.Tickets[0];
+            Assert.That(ticket.Program, Is.EqualTo("Codex"));
+            Assert.That(ticket.Model, Is.EqualTo("Model A"));
+            Assert.That(ticket.ReasoningEffort, Is.EqualTo("high"));
+            Assert.That(ticket.SessionName, Is.EqualTo("씬 작업"));
+            Assert.That(service.Enqueue("a", program: "Other").Program, Is.EqualTo("Codex"));
+        }
+
+        [Test]
         public void StatusDoesNotRequireSessionRegistration()
         {
             CoordinationCommandResult result = CoordinationProtocol.ExecuteJson("{\"action\":\"status\"}", service);

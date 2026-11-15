@@ -11,11 +11,19 @@ namespace Olivecrow.UnityAgentCoordination.Editor
     {
         static ProjectSkillRegistration()
         {
-            EditorApplication.delayCall += Install;
+            EditorApplication.update += InstallWhenAvailable;
             Events.registeringPackages += OnRegisteringPackages;
         }
 
         private static string ProjectPath => Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+
+        private static void InstallWhenAvailable()
+        {
+            PackageInfo package = PackageInfo.FindForAssembly(typeof(ProjectSkillRegistration).Assembly);
+            if (package == null || package.name != ProjectSkillInstaller.PackageName) return;
+            EditorApplication.update -= InstallWhenAvailable;
+            Install();
+        }
 
         private static void Install()
         {
@@ -48,7 +56,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                     continue;
                 }
 
-                EditorApplication.delayCall -= Install;
+                EditorApplication.update -= InstallWhenAvailable;
                 try
                 {
                     ProjectSkillInstaller.Remove(ProjectPath, Warn);

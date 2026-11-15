@@ -15,14 +15,16 @@
 | 명령 | 필수 입력 | 결과 |
 | --- | --- | --- |
 | `status` | 없음 | 대기열, 사용 중인 번호표, 다음 번호표 |
-| `enqueue` | `session_id` | `ticket.ticket_id`, `ticket.number`; `label`은 선택 |
+| `enqueue` | `session_id` | `ticket.ticket_id`, `ticket.number`; `label`, `program`, `model`, `reasoning_effort`, `session_name`은 선택 |
 | `acquire` | `session_id`, `ticket_id` | 성공한 뒤에만 Editor 사용 |
 | `release` | `session_id`, `ticket_id` | 사용 중인 번호표 반납 |
 | `cancel` | `session_id`, `ticket_id` | 사용자에게 제어를 넘기기 전 자기 대기 번호표 취소 또는 자기 번호표 포기 |
 
 ```json
-{"action":"enqueue","session_id":"task-a","label":"씬 검사"}
+{"action":"enqueue","session_id":"task-a","label":"씬 검사","program":"Codex","model":"Unknown","reasoning_effort":"Unknown","session_name":"Unknown"}
 ```
+
+에이전트는 발급 시 프로그램, 실제 모델, 추론 수준, 대화 제목을 네 필드에 기입합니다. 확인할 수 없는 값은 추측하지 말고 `Unknown`으로 적습니다. 이 정보는 자동 감지가 아닌 에이전트의 자기 보고입니다. 기존 클라이언트와 대기열과의 호환성을 위해 필드는 선택 사항이며, 누락된 값은 Editor 창에서 Unknown으로 표시됩니다. 재시도는 기존 번호표를 반환하며 정보를 갱신하지 않습니다.
 
 반환된 `ticket.ticket_id`를 저장하고 간격을 두어 `status`를 확인합니다. `queue.next_ticket_id`가 자신의 번호표인 경우에만 점유합니다.
 

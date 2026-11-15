@@ -4,6 +4,11 @@
 
 All notable changes to this package are documented here.
 
+## 0.5.2 - 2026-11-15
+
+- Record and display the agent program, model, reasoning effort, and conversation name on tickets. Unknown values remain explicit and older clients and queues remain compatible.
+- Wait for the package to become available before installing the project-local skill after an Editor domain reload.
+
 ## 0.5.1 - 2026-11-11
 
 - Scope ticket ownership to one active conversation turn: release active tickets or cancel waiting tickets before a final response or pausing for user input, even when the same conversation will continue.

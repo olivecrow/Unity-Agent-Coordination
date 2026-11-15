@@ -16,7 +16,8 @@ namespace Olivecrow.UnityAgentCoordination
 
         public QueueSnapshot GetStatus() => store.Read(Snapshot);
 
-        public EditorTicket Enqueue(string sessionId, string label = null)
+        public EditorTicket Enqueue(string sessionId, string label = null, string program = null, string model = null,
+            string reasoningEffort = null, string sessionName = null)
         {
             string session = Required(sessionId, "session_id");
             return store.Change(state =>
@@ -28,6 +29,7 @@ namespace Olivecrow.UnityAgentCoordination
                 {
                     TicketId = Guid.NewGuid().ToString("N"), Number = state.NextNumber++,
                     SessionId = session, Label = label ?? string.Empty,
+                    Program = program, Model = model, ReasoningEffort = reasoningEffort, SessionName = sessionName,
                     State = TicketStates.Waiting, IssuedUtc = utcNow()
                 };
                 state.Tickets.Add(ticket);

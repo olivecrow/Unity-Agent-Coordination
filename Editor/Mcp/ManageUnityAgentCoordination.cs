@@ -15,6 +15,10 @@ namespace Olivecrow.UnityAgentCoordination.CoplayMcp
             [ToolParameter("Unique ID for this AI work session; required except for status. May persist across turns, but tickets must be released or canceled before yielding to the user.", Required = false)] public string session_id { get; set; }
             [ToolParameter("Ticket returned by enqueue for the current turn; required for acquire, release, or cancel. Enqueue a fresh ticket when resuming in a later turn.", Required = false)] public string ticket_id { get; set; }
             [ToolParameter("Optional short task description for enqueue.", Required = false)] public string label { get; set; }
+            [ToolParameter("Program running the agent, such as Codex, Antigravity, or Claude Code. Supply on enqueue; use Unknown if unavailable.", Required = false)] public string program { get; set; }
+            [ToolParameter("Actual model name, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string model { get; set; }
+            [ToolParameter("Actual reasoning effort or level, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string reasoning_effort { get; set; }
+            [ToolParameter("Conversation session name or title, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string session_name { get; set; }
         }
 
         public static object HandleCommand(JObject parameters)

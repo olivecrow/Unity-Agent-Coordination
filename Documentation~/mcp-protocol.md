@@ -15,14 +15,18 @@ The `session_id` may persist across turns; the ticket must not. When Editor work
 | Action | Required fields | Result |
 | --- | --- | --- |
 | `status` | none | `queue.tickets`, `queue.active_ticket_id`, `queue.next_ticket_id` |
-| `enqueue` | `session_id` | `ticket` with `ticket_id`, `number`, and `state`; optional `label` |
+| `enqueue` | `session_id` | `ticket` with `ticket_id`, `number`, and `state`; optional `label`, `program`, `model`, `reasoning_effort`, and `session_name`, `program`, `model`, `reasoning_effort`, and `session_name` |
 | `acquire` | `session_id`, `ticket_id` | Own the Editor only after success |
 | `release` | `session_id`, `ticket_id` | Return an active ticket and unblock the next one |
 | `cancel` | `session_id`, `ticket_id` | Remove your waiting ticket before yielding, or your own abandoned ticket |
 
 ```json
-{"action":"enqueue","session_id":"task-a","label":"Inspect scene"}
+{"action":"enqueue","session_id":"task-a","label":"Inspect scene","program":"Codex","model":"Unknown","reasoning_effort":"Unknown","session_name":"Unknown"}
 ```
+
+Agents should supply all four identification fields on enqueue: the program, actual model, reasoning effort, and conversation title. Use `Unknown` when a value cannot be verified; do not guess. These fields are self-reported, not automatically detected. They remain optional for compatibility with existing clients and queues; missing values appear as unknown in the Editor window. A retry returns the original ticket and does not update its metadata.
+
+Agents should supply all four identification fields on enqueue: the program, actual model, reasoning effort, and conversation title. Use `Unknown` when a value cannot be verified; do not guess. These fields are self-reported, not automatically detected. They remain optional for compatibility with existing clients and queues; missing values appear as unknown in the Editor window. A retry returns the original ticket and does not update its metadata.
 
 Save the returned `ticket.ticket_id`. Poll `status` with backoff. Only when `queue.next_ticket_id` matches your ticket, send:
 

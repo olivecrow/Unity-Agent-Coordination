@@ -48,3 +48,5 @@ Unity `6000.3.22f1` 참조 어셈블리 컴파일을 확인하고, 버전 관리
 ## 라이선스
 
 MIT. [LICENSE.md](LICENSE.md)를 참고하세요.
+
+번호표 발급 시 `program`, `model`, `reasoning_effort`, `session_name`에 프로그램, 모델, 추론 수준, 대화 제목을 기입합니다. 확인할 수 없는 값은 `Unknown`으로 표시하며, 기존 클라이언트는 생략할 수 있습니다.

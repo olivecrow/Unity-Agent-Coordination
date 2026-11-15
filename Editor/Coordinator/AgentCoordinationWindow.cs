@@ -44,7 +44,11 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     EditorGUILayout.LabelField($"#{ticket.Number} · {ticket.State}", EditorStyles.boldLabel);
-                    EditorGUILayout.LabelField("Session", ticket.SessionId);
+                    EditorGUILayout.LabelField("Program", string.IsNullOrWhiteSpace(ticket.Program) ? "Unknown" : ticket.Program, EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("Model", string.IsNullOrWhiteSpace(ticket.Model) ? "Unknown" : ticket.Model, EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("Reasoning effort", string.IsNullOrWhiteSpace(ticket.ReasoningEffort) ? "Unknown" : ticket.ReasoningEffort, EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("Conversation", string.IsNullOrWhiteSpace(ticket.SessionName) ? "Unknown" : ticket.SessionName, EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("Session ID", ticket.SessionId, EditorStyles.wordWrappedLabel);
                     EditorGUILayout.LabelField("Ticket", ticket.TicketId);
                     EditorGUILayout.LabelField("Task", ticket.Label, EditorStyles.wordWrappedLabel);
                     EditorGUILayout.LabelField("Issued", ticket.IssuedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
