@@ -4,6 +4,12 @@
 
 All notable changes to this package are documented here.
 
+## 0.6.0 - 2026-11-16
+
+- Add optional local file notifications for waiting agents. A PowerShell 7 watcher receives the next-ticket hint without polling Unity; agents still verify status and acquire normally.
+- Preserve FIFO behavior and compatibility with older clients; notification failures and timeouts fall back to status checks, and finished conversations cannot be restarted by the notification.
+- Upgrade existing unmodified project skills to include the watcher while preserving user-owned files.
+
 ## 0.5.2 - 2026-11-15
 
 - Record and display the agent program, model, reasoning effort, and conversation name on tickets. Unknown values remain explicit and older clients and queues remain compatible.

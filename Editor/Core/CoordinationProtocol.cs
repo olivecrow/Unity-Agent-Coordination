@@ -15,6 +15,7 @@ namespace Olivecrow.UnityAgentCoordination
         [DataMember(Name = "model")] public string Model { get; set; }
         [DataMember(Name = "reasoning_effort")] public string ReasoningEffort { get; set; }
         [DataMember(Name = "session_name")] public string SessionName { get; set; }
+        [DataMember(Name = "notification_token")] public string NotificationToken { get; set; }
     }
 
     [DataContract]
@@ -50,7 +51,7 @@ namespace Olivecrow.UnityAgentCoordination
                 switch (command.Action.Trim().ToLowerInvariant())
                 {
                     case "status": break;
-                    case "enqueue": ticket = service.Enqueue(command.SessionId, command.Label, command.Program, command.Model, command.ReasoningEffort, command.SessionName); break;
+                    case "enqueue": ticket = service.Enqueue(command.SessionId, command.Label, command.Program, command.Model, command.ReasoningEffort, command.SessionName, command.NotificationToken); break;
                     case "acquire": ticket = service.Acquire(command.SessionId, command.TicketId, editorReady); break;
                     case "release": ticket = service.Release(command.SessionId, command.TicketId); break;
                     case "cancel": ticket = service.Cancel(command.SessionId, command.TicketId); break;

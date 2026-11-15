@@ -15,7 +15,7 @@ The `session_id` may persist across turns; the ticket must not. When Editor work
 | Action | Required fields | Result |
 | --- | --- | --- |
 | `status` | none | `queue.tickets`, `queue.active_ticket_id`, `queue.next_ticket_id` |
-| `enqueue` | `session_id` | `ticket` with `ticket_id`, `number`, and `state`; optional `label`, `program`, `model`, `reasoning_effort`, and `session_name`, `program`, `model`, `reasoning_effort`, and `session_name` |
+| `enqueue` | `session_id` | `ticket` with `ticket_id`, `number`, and `state`; optional `label`, `program`, `model`, `reasoning_effort`, and `session_name`; optional `notification_token` |
 | `acquire` | `session_id`, `ticket_id` | Own the Editor only after success |
 | `release` | `session_id`, `ticket_id` | Return an active ticket and unblock the next one |
 | `cancel` | `session_id`, `ticket_id` | Remove your waiting ticket before yielding, or your own abandoned ticket |
@@ -26,7 +26,7 @@ The `session_id` may persist across turns; the ticket must not. When Editor work
 
 Agents should supply all four identification fields on enqueue: the program, actual model, reasoning effort, and conversation title. Use `Unknown` when a value cannot be verified; do not guess. These fields are self-reported, not automatically detected. They remain optional for compatibility with existing clients and queues; missing values appear as unknown in the Editor window. A retry returns the original ticket and does not update its metadata.
 
-Agents should supply all four identification fields on enqueue: the program, actual model, reasoning effort, and conversation title. Use `Unknown` when a value cannot be verified; do not guess. These fields are self-reported, not automatically detected. They remain optional for compatibility with existing clients and queues; missing values appear as unknown in the Editor window. A retry returns the original ticket and does not update its metadata.
+Optional notification: before enqueue, start `pwsh -NoProfile -File .agents/skills/unity-agent-coordination/scripts/wait_for_turn.ps1 -ProjectPath <Unity-project-path> -Timeout 120` in a persistent shell session. Use PowerShell 7 (`pwsh`) on Windows as well; if unavailable or blocked, use the status fallback without changing execution policy. Include the `notification_token` from its first `ready` JSON line in `enqueue`. If enqueue already shows your ticket as next, stop the watcher and acquire immediately. Otherwise, a `turn` event indicates that the queue may be ready; call `status` and `acquire` as usual. The file watcher needs read access to the project's Library folder. On timeout, interruption, domain reload, or failure, reconcile with `status`; cancel your waiting ticket before starting a replacement watcher because enqueue retries retain the original token. This best-effort channel cannot restart an agent whose turn has ended; polling remains available.
 
 Save the returned `ticket.ticket_id`. Poll `status` with backoff. Only when `queue.next_ticket_id` matches your ticket, send:
 

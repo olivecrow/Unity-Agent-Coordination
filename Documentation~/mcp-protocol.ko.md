@@ -26,6 +26,8 @@
 
 에이전트는 발급 시 프로그램, 실제 모델, 추론 수준, 대화 제목을 네 필드에 기입합니다. 확인할 수 없는 값은 추측하지 말고 `Unknown`으로 적습니다. 이 정보는 자동 감지가 아닌 에이전트의 자기 보고입니다. 기존 클라이언트와 대기열과의 호환성을 위해 필드는 선택 사항이며, 누락된 값은 Editor 창에서 Unknown으로 표시됩니다. 재시도는 기존 번호표를 반환하며 정보를 갱신하지 않습니다.
 
+선택형 알림을 사용하려면 `enqueue` 전에 `pwsh -NoProfile -File .agents/skills/unity-agent-coordination/scripts/wait_for_turn.ps1 -ProjectPath <Unity-project-path> -Timeout 120`을 유지되는 셸 세션으로 실행합니다. Windows에서도 PowerShell 7의 `pwsh`를 사용합니다. 사용할 수 없거나 스크립트 실행이 차단되면 실행 정책을 변경하지 말고 상태 확인으로 대체합니다. 첫 JSON 줄의 `notification_token`을 발급 요청에 포함합니다. 발급 응답에서 이미 자기 차례라면 바로 점유를 시도합니다. `turn` 이벤트를 받으면 `status`로 확인한 뒤 `acquire`합니다. 알림은 보장이 없는 신호이며 점유 권한이 아닙니다. 시간 초과, 연결 종료, 도메인 재로드 또는 실패 시 `status`로 확인합니다. 새 수신기를 등록할 때는 기존 대기 번호표를 취소하고 새로 발급받습니다. 프로젝트 Library를 읽을 수 있어야 하며, 종료된 에이전트 턴은 재개되지 않습니다. 사용이 어려우면 기존 상태 확인을 사용합니다.
+
 반환된 `ticket.ticket_id`를 저장하고 간격을 두어 `status`를 확인합니다. `queue.next_ticket_id`가 자신의 번호표인 경우에만 점유합니다.
 
 ```json

@@ -19,6 +19,7 @@ namespace Olivecrow.UnityAgentCoordination.CoplayMcp
             [ToolParameter("Actual model name, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string model { get; set; }
             [ToolParameter("Actual reasoning effort or level, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string reasoning_effort { get; set; }
             [ToolParameter("Conversation session name or title, if known; otherwise Unknown. Supply on enqueue.", Required = false)] public string session_name { get; set; }
+            [ToolParameter("Optional 32-hex token from the local file watcher. Notifications are hints: recheck status and acquire.", Required = false)] public string notification_token { get; set; }
         }
 
         public static object HandleCommand(JObject parameters)

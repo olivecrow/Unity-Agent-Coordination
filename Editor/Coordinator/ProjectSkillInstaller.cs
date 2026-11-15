@@ -13,7 +13,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
         internal const string OwnershipFile = ".package-owned";
         internal static readonly string[] Files =
         {
-            "SKILL.md", "agents/openai.yaml", "references/mcp-protocol.md"
+            "SKILL.md", "agents/openai.yaml", "references/mcp-protocol.md", "scripts/wait_for_turn.ps1"
         };
 
         internal static bool Install(string projectPath, string packagePath, Action<string> report)
@@ -63,7 +63,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             }
 
             File.Delete(marker);
-            foreach (string directory in new[] { "agents", "references", "" })
+            foreach (string directory in new[] { "agents", "references", "scripts", "" })
             {
                 string path = Path.Combine(target, directory);
                 if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
@@ -78,7 +78,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
         private static bool CanChange(string target, string marker, Action<string> report)
         {
             string[] ownership = File.Exists(marker) ? File.ReadAllLines(marker) : Array.Empty<string>();
-            if (ownership.Length != Files.Length + 1 || ownership[0] != PackageName ||
+            if ((ownership.Length != Files.Length + 1 && ownership.Length != Files.Length) || ownership[0] != PackageName ||
                 ownership.Skip(1).Any(hash => hash.Length != 64 || !hash.All(Uri.IsHexDigit)))
             {
                 report?.Invoke($"Project skill at {target} has no valid package ownership record; preserving it.");
@@ -88,7 +88,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
             for (int i = 0; i < Files.Length; i++)
             {
                 string path = Path.Combine(target, Files[i]);
-                if (File.Exists(path) && Hash(File.ReadAllBytes(path)) != ownership[i + 1])
+                if (File.Exists(path) && (i + 1 >= ownership.Length || Hash(File.ReadAllBytes(path)) != ownership[i + 1]))
                 {
                     report?.Invoke($"Project skill file {path} was modified; preserving the entire skill.");
                     return false;

@@ -1,6 +1,6 @@
 {
   "name": "com.olivecrow.unity-agent-coordination",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "displayName": "Unity Agent Coordination",
   "description": "A project-local FIFO ticket queue for AI access to one Unity Editor.",
   "type": "tool",

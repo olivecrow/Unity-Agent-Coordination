@@ -73,6 +73,23 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [Test]
+        public void PreviousThreeFileOwnershipRecordUpgradesWithoutOverwritingUserScript()
+        {
+            Assert.That(Install(), Is.True);
+            string marker = Path.Combine(target, ProjectSkillInstaller.OwnershipFile);
+            string[] lines = File.ReadAllLines(marker);
+            File.WriteAllLines(marker, lines.Take(4));
+            string script = Path.Combine(target, "scripts/wait_for_turn.ps1");
+            File.Delete(script);
+            Assert.That(Install(), Is.True);
+            Assert.That(File.Exists(script), Is.True);
+            File.WriteAllLines(marker, lines.Take(4));
+            File.WriteAllText(script, "user file");
+            Assert.That(Install(), Is.False);
+            Assert.That(File.ReadAllText(script), Is.EqualTo("user file"));
+        }
+
+        [Test]
         public void ExistingUnmanagedSkillIsPreserved()
         {
             Directory.CreateDirectory(target);

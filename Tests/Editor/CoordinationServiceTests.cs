@@ -70,6 +70,57 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [Test]
+        public void ReleaseNotifiesOnlyTheNextTicketAndStillRequiresAcquire()
+        {
+            const string token = "0123456789abcdef0123456789abcdef";
+            EditorTicket active = service.Enqueue("a");
+            service.Acquire("a", active.TicketId);
+            EditorTicket next = service.Enqueue("b", notificationToken: token);
+            service.Enqueue("c");
+            service.Release("a", active.TicketId);
+            string path = Path.Combine(Path.GetDirectoryName(store.StatePath), "notify-" + token + ".json");
+            Assert.That(File.ReadAllText(path), Does.Contain(next.TicketId));
+            Assert.That(service.GetStatus().NextTicketId, Is.EqualTo(next.TicketId));
+            Assert.That(service.Acquire("b", next.TicketId).State, Is.EqualTo(TicketStates.Active));
+            Assert.That(File.Exists(path), Is.False);
+        }
+
+        [Test]
+        public void CancelFirstWaitingTicketNotifiesNextAndInvalidChannelIsRejected()
+        {
+            const string token = "abcdef0123456789abcdef0123456789";
+            EditorTicket first = service.Enqueue("a");
+            EditorTicket next = service.Enqueue("b", notificationToken: token);
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Enqueue("c", notificationToken: "../bad")).Code, Is.EqualTo("invalid_notification"));
+            service.Cancel("a", first.TicketId);
+            string path = Path.Combine(Path.GetDirectoryName(store.StatePath), "notify-" + token + ".json");
+            Assert.That(File.ReadAllText(path), Does.Contain(next.TicketId));
+        }
+
+        [Test]
+        public void FailedNotificationDoesNotUndoAReleasedTicket()
+        {
+            const string token = "0123456789abcdef0123456789abcdef";
+            EditorTicket active = service.Enqueue("a");
+            service.Acquire("a", active.TicketId);
+            EditorTicket next = service.Enqueue("b", notificationToken: token);
+            string path = Path.Combine(Path.GetDirectoryName(store.StatePath), "notify-" + token + ".json");
+            Directory.CreateDirectory(path);
+            Assert.That(service.Release("a", active.TicketId).State, Is.EqualTo(TicketStates.Released));
+            Assert.That(service.GetStatus().NextTicketId, Is.EqualTo(next.TicketId));
+            Assert.That(service.Acquire("b", next.TicketId).State, Is.EqualTo(TicketStates.Active));
+        }
+
+        [Test]
+        public void DuplicateNotificationTokenIsRejectedWithoutChangingQueue()
+        {
+            const string token = "abcdef0123456789abcdef0123456789";
+            EditorTicket ticket = service.Enqueue("a", notificationToken: token);
+            Assert.That(Assert.Throws<CoordinationException>(() => service.Enqueue("b", notificationToken: token.ToUpperInvariant())).Code, Is.EqualTo("notification_in_use"));
+            Assert.That(service.GetStatus().Tickets.Select(item => item.TicketId), Is.EqualTo(new[] { ticket.TicketId }));
+        }
+
+        [Test]
         public void LaterTicketCannotJumpTheQueue()
         {
             service.Enqueue("a");

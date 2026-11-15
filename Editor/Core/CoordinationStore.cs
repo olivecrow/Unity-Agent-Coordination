@@ -50,9 +50,11 @@ namespace Olivecrow.UnityAgentCoordination
                 state.Tickets == null || state.Tickets.Any(ticket => ticket == null ||
                     string.IsNullOrWhiteSpace(ticket.TicketId) || string.IsNullOrWhiteSpace(ticket.SessionId) ||
                     ticket.Number < 1 || ticket.Number >= state.NextNumber || ticket.IssuedUtc == default(DateTime) ||
+                    (ticket.NotificationToken != null && (ticket.NotificationToken.Length != 32 || !ticket.NotificationToken.All(Uri.IsHexDigit))) ||
                     (ticket.State != TicketStates.Waiting && ticket.State != TicketStates.Active)) ||
                 state.Tickets.Select(ticket => ticket.TicketId).Distinct().Count() != state.Tickets.Count ||
                 state.Tickets.Select(ticket => ticket.SessionId).Distinct().Count() != state.Tickets.Count ||
+                state.Tickets.Where(ticket => ticket.NotificationToken != null).Select(ticket => ticket.NotificationToken).Distinct(StringComparer.OrdinalIgnoreCase).Count() != state.Tickets.Count(ticket => ticket.NotificationToken != null) ||
                 state.Tickets.Select(ticket => ticket.Number).Distinct().Count() != state.Tickets.Count ||
                 state.Tickets.Count(ticket => ticket.State == TicketStates.Active) > 1)
             {

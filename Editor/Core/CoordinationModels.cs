@@ -23,8 +23,16 @@ namespace Olivecrow.UnityAgentCoordination
         [DataMember(Name = "model")] public string Model { get; set; }
         [DataMember(Name = "reasoning_effort")] public string ReasoningEffort { get; set; }
         [DataMember(Name = "session_name")] public string SessionName { get; set; }
+        [DataMember(Name = "notification_token", EmitDefaultValue = false)] public string NotificationToken { get; set; }
         [DataMember(Name = "state")] public string State { get; set; }
         [DataMember(Name = "issued_utc")] public DateTime IssuedUtc { get; set; }
+    }
+
+    [DataContract]
+    internal sealed class TicketNotification
+    {
+        [DataMember(Name = "ticket_id")] public string TicketId { get; set; }
+        [DataMember(Name = "token")] public string Token { get; set; }
     }
 
     [DataContract]

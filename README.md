@@ -21,7 +21,7 @@ After import and compilation, the package registers its Codex skill in that proj
 **Tickets are scoped to one active conversation turn.** Return them as soon as the current Editor work finishes, and always before ending the turn with a final response or suspending work to wait for the user's reply, confirmation, or approval, even if the task will continue in the same conversation. Progress messages and tool waits while continuing the current work do not end the turn. The `session_id` may persist across turns; a ticket must not.
 
 1. Choose a unique `session_id` for this AI task and call `enqueue` with `program`, `model`, `reasoning_effort`, and `session_name`. Supply verified values or `Unknown` if unavailable; they are self-reported and optional for older clients. It returns a `ticket_id` and an increasing ticket number. Retrying `enqueue` for that session returns its outstanding ticket; this does not authorize keeping it across turns.
-2. Poll `status`. Wait until `queue.next_ticket_id` matches your ticket.
+2. Wait until `queue.next_ticket_id` matches your ticket. Optionally start the PowerShell 7 watcher before enqueue to receive a best-effort turn notification; see the [protocol](Documentation~/mcp-protocol.md). Reconcile with `status` after a notification or timeout.
 3. Call `acquire` with your session and ticket. Use the Editor only after success; an active ticket blocks every other ticket.
 4. In cleanup/finally, finish or safely stop Editor operations you started, then `release` your active ticket or `cancel` your waiting ticket, including on failure and before ending the turn or waiting for user input. The next waiting session may then acquire its ticket.
 5. Verify cleanup success and that your ticket is absent from the returned `queue.tickets`. If the response is missing, failed, or ambiguous, use `status` to reconcile before retrying cleanup. Report unresolved cleanup with your session/ticket IDs and error; do not claim release without confirmation.
@@ -43,7 +43,7 @@ See the five-command [protocol](Documentation~/mcp-protocol.md). Optional NUnit 
 
 The 0.5 protocol replaces the old work-registration, claims, integrator, and commit-validation APIs. Stop existing sessions and return their tickets before upgrading. Previous coordination state is not imported into the new project-local queue.
 
-Reference compilation is checked against Unity `6000.3.22f1`; standalone tests cover the entire JSON ticket lifecycle without version-control files or external executables. Reference compilation and isolated tests do not substitute for a live Unity import/callback or Unity Test Runner check. Other Unity versions have not been qualified.
+The ticket lifecycle is covered by standalone tests. The optional watcher requires PowerShell 7 and a persistent shell session; polling remains available. Live notification handoffs were checked in Unity `6000.6.8f1` with Codex and Antigravity. Other Unity versions and platforms have not been qualified for notification handoffs; standalone tests do not substitute for Unity Test Runner checks.
 
 ## License
 
