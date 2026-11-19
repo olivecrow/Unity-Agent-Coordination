@@ -4,6 +4,10 @@
 
 All notable changes to this package are documented here.
 
+## 0.6.1 - 2026-11-19
+
+- Update the bundled skill to run Unity's Ctrl+S save before and after Editor work and save pending changes in windows such as Shader Graph.
+
 ## 0.6.0 - 2026-11-16
 
 - Add optional local file notifications for waiting agents. A PowerShell 7 watcher receives the next-ticket hint without polling Unity; agents still verify status and acquire normally.
