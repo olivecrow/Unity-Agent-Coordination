@@ -4,6 +4,11 @@
 
 All notable changes to this package are documented here.
 
+## 0.7.0 - 2026-11-27
+
+- Add **Cancel Ticket** to each ticket in the Editor window. Canceling one ticket preserves the rest of the queue and notifies the next eligible session. Canceling an active ticket requires confirmation that its session has stopped using the Editor.
+- Require agents to look up and submit the program, model, reasoning effort, and conversation title before drawing a ticket and verify the recorded values before acquiring it. Use `Unknown` only after checking available sources. Existing clients can still omit these fields at the API level.
+
 ## 0.6.1 - 2026-11-19
 
 - Update the bundled skill to run Unity's Ctrl+S save before and after Editor work and save pending changes in windows such as Shader Graph.

@@ -12,7 +12,7 @@
 
 ## 명령
 
-| 명령 | 필수 입력 | 결과 |
+| 명령 | API 필수 입력 | 결과 |
 | --- | --- | --- |
 | `status` | 없음 | 대기열, 사용 중인 번호표, 다음 번호표 |
 | `enqueue` | `session_id` | `ticket.ticket_id`, `ticket.number`; `label`, `program`, `model`, `reasoning_effort`, `session_name`은 선택 |
@@ -20,11 +20,13 @@
 | `release` | `session_id`, `ticket_id` | 사용 중인 번호표 반납 |
 | `cancel` | `session_id`, `ticket_id` | 사용자에게 제어를 넘기기 전 자기 대기 번호표 취소 또는 자기 번호표 포기 |
 
-```json
-{"action":"enqueue","session_id":"task-a","label":"씬 검사","program":"Codex","model":"Unknown","reasoning_effort":"Unknown","session_name":"Unknown"}
-```
+에이전트는 `enqueue`를 호출할 때마다 먼저 현재 런타임과 세션 정보를 확인하고, 호스트가 제공하는 조회 수단으로 프로그램, 실제 모델, 추론 수준, 대화 제목을 확인해야 합니다. 네 필드를 모두 보내고, 조회 후에도 확인할 수 없는 값만 `Unknown`으로 적습니다. 점유 전에 발급 응답의 값이 제출한 값과 일치하는지 확인합니다. API는 기존 클라이언트 및 대기열과의 호환성을 위해 누락을 허용하며, 누락된 값은 Editor 창에 `Unknown`으로 표시됩니다. 재시도는 처음 기록된 정보가 담긴 기존 번호표를 반환합니다.
 
-에이전트는 발급 시 프로그램, 실제 모델, 추론 수준, 대화 제목을 네 필드에 기입합니다. 확인할 수 없는 값은 추측하지 말고 `Unknown`으로 적습니다. 이 정보는 자동 감지가 아닌 에이전트의 자기 보고입니다. 기존 클라이언트와 대기열과의 호환성을 위해 필드는 선택 사항이며, 누락된 값은 Editor 창에서 Unknown으로 표시됩니다. 재시도는 기존 번호표를 반환하며 정보를 갱신하지 않습니다.
+아래는 예시 값을 사용한 발급 요청입니다.
+
+```json
+{"action":"enqueue","session_id":"task-a","label":"씬 검사","program":"Example Agent","model":"Example Model","reasoning_effort":"high","session_name":"로비 씬 검토"}
+```
 
 선택형 알림을 사용하려면 `enqueue` 전에 `pwsh -NoProfile -File .agents/skills/unity-agent-coordination/scripts/wait_for_turn.ps1 -ProjectPath <Unity-project-path> -Timeout 120`을 유지되는 셸 세션으로 실행합니다. Windows에서도 PowerShell 7의 `pwsh`를 사용합니다. 사용할 수 없거나 스크립트 실행이 차단되면 실행 정책을 변경하지 말고 상태 확인으로 대체합니다. 첫 JSON 줄의 `notification_token`을 발급 요청에 포함합니다. 발급 응답에서 이미 자기 차례라면 바로 점유를 시도합니다. `turn` 이벤트를 받으면 `status`로 확인한 뒤 `acquire`합니다. 알림은 보장이 없는 신호이며 점유 권한이 아닙니다. 시간 초과, 연결 종료, 도메인 재로드 또는 실패 시 `status`로 확인합니다. 새 수신기를 등록할 때는 기존 대기 번호표를 취소하고 새로 발급받습니다. 프로젝트 Library를 읽을 수 있어야 하며, 종료된 에이전트 턴은 재개되지 않습니다. 사용이 어려우면 기존 상태 확인을 사용합니다.
 
@@ -54,4 +56,4 @@ Unity 라우터는 컴파일·import·빌드·Play Mode 전환 중에 새 점유
 
 어댑터는 `UnityAgentCoordinationCommandRouter.ExecuteJson(string)`에 JSON을 전달하고 결과를 보존합니다. Core는 `CoordinationProtocol.ExecuteJson(json, service, editorReady)`로 호출할 수도 있습니다. 어댑터나 에이전트가 상태 파일을 직접 수정하지 않습니다. 다른 bridge 명령은 가로채지 않으므로 Editor 작업 묶음마다 소유권을 지켜야 합니다.
 
-세션이 사라져도 번호표는 유지됩니다. 사용자는 기존 소유자가 Editor 사용을 멈췄는지 확인한 뒤 Editor 창의 **Reset Abandoned Queue**를 사용할 수 있습니다. 이 복구 작업은 AI 명령으로 제공하지 않습니다. 잘못된 상태 파일은 소유권을 조용히 폐기하지 않고 오류로 중단합니다.
+세션이 사라져도 번호표는 유지됩니다. 사용자는 Editor 창의 **Cancel Ticket**으로 번호표 하나를 취소하거나 **Reset Abandoned Queue**로 대기열 전체를 초기화할 수 있습니다. 사용 중인 번호표를 취소하기 전에는 해당 세션이 Editor 사용을 끝냈는지 확인합니다. 두 복구 작업 모두 Editor 창에서만 사용할 수 있습니다. 잘못된 상태 파일은 소유권을 조용히 폐기하지 않고 오류로 중단합니다.

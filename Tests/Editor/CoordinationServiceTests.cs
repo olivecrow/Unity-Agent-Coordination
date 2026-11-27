@@ -256,6 +256,40 @@ namespace Olivecrow.UnityAgentCoordination.Tests
         }
 
         [Test]
+        public void OperatorCancelRemovesOnlySelectedTicketsAndNotifiesNext()
+        {
+            const string token = "0123456789abcdef0123456789abcdef";
+            EditorTicket active = service.Enqueue("a");
+            EditorTicket waiting = service.Enqueue("b");
+            EditorTicket next = service.Enqueue("c", notificationToken: token);
+            service.Acquire("a", active.TicketId);
+
+            Assert.That(service.CancelFromEditor(waiting.TicketId, allowActive: false).State, Is.EqualTo(TicketStates.Canceled));
+            QueueSnapshot occupied = service.GetStatus();
+            Assert.That(occupied.ActiveTicketId, Is.EqualTo(active.TicketId));
+            Assert.That(occupied.Tickets.Select(ticket => ticket.TicketId), Is.EqualTo(new[] { active.TicketId, next.TicketId }));
+
+            Assert.That(service.CancelFromEditor(active.TicketId, allowActive: true).State, Is.EqualTo(TicketStates.Canceled));
+            QueueSnapshot available = service.GetStatus();
+            Assert.That(available.ActiveTicketId, Is.Null);
+            Assert.That(available.NextTicketId, Is.EqualTo(next.TicketId));
+            Assert.That(available.Tickets.Select(ticket => ticket.TicketId), Is.EqualTo(new[] { next.TicketId }));
+            string notification = Path.Combine(Path.GetDirectoryName(store.StatePath), "notify-" + token + ".json");
+            Assert.That(File.ReadAllText(notification), Does.Contain(next.TicketId));
+        }
+
+        [Test]
+        public void OperatorCancelRequiresActiveConfirmationIfWaitingTicketWasAcquired()
+        {
+            EditorTicket ticket = service.Enqueue("a");
+            service.Acquire("a", ticket.TicketId);
+
+            CoordinationException error = Assert.Throws<CoordinationException>(() => service.CancelFromEditor(ticket.TicketId, allowActive: false));
+            Assert.That(error.Code, Is.EqualTo("ticket_became_active"));
+            Assert.That(service.GetStatus().ActiveTicketId, Is.EqualTo(ticket.TicketId));
+        }
+
+        [Test]
         public void OperatorResetClearsAnAbandonedQueue()
         {
             EditorTicket a = service.Enqueue("a");

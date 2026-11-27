@@ -38,6 +38,7 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                 EditorGUILayout.HelpBox("The queue is empty.", MessageType.Info);
                 return;
             }
+            EditorTicket selectedTicket = null;
             scroll = EditorGUILayout.BeginScrollView(scroll);
             foreach (EditorTicket ticket in snapshot.Tickets)
             {
@@ -52,9 +53,27 @@ namespace Olivecrow.UnityAgentCoordination.Editor
                     EditorGUILayout.LabelField("Ticket", ticket.TicketId);
                     EditorGUILayout.LabelField("Task", ticket.Label, EditorStyles.wordWrappedLabel);
                     EditorGUILayout.LabelField("Issued", ticket.IssuedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+                    using (new EditorGUI.DisabledScope(!AgentCoordinationEditorContext.IsReady))
+                    {
+                        if (GUILayout.Button("Cancel Ticket")) selectedTicket = ticket;
+                    }
                 }
             }
             EditorGUILayout.EndScrollView();
+            if (selectedTicket != null) ConfirmTicketCancellation(selectedTicket);
+        }
+
+        private void ConfirmTicketCancellation(EditorTicket ticket)
+        {
+            bool active = ticket.State == TicketStates.Active;
+            string message = $"Cancel ticket #{ticket.Number}?";
+            if (active)
+                message += "\n\nConfirm that its session has stopped using the Editor before canceling this active ticket.";
+            if (!EditorUtility.DisplayDialog("Cancel Editor Ticket", message, "Cancel Ticket", "Keep Ticket")) return;
+
+            try { AgentCoordinationEditorContext.Service.CancelFromEditor(ticket.TicketId, allowActive: active); }
+            catch (Exception exception) { EditorUtility.DisplayDialog("Could Not Cancel Ticket", exception.Message, "OK"); }
+            finally { Refresh(); }
         }
 
         private void UpdateQueue()

@@ -12,7 +12,7 @@ The `session_id` may persist across turns; the ticket must not. When Editor work
 
 ## Commands
 
-| Action | Required fields | Result |
+| Action | Fields required by the API | Result |
 | --- | --- | --- |
 | `status` | none | `queue.tickets`, `queue.active_ticket_id`, `queue.next_ticket_id` |
 | `enqueue` | `session_id` | `ticket` with `ticket_id`, `number`, and `state`; optional `label`, `program`, `model`, `reasoning_effort`, and `session_name`; optional `notification_token` |
@@ -20,11 +20,13 @@ The `session_id` may persist across turns; the ticket must not. When Editor work
 | `release` | `session_id`, `ticket_id` | Return an active ticket and unblock the next one |
 | `cancel` | `session_id`, `ticket_id` | Remove your waiting ticket before yielding, or your own abandoned ticket |
 
-```json
-{"action":"enqueue","session_id":"task-a","label":"Inspect scene","program":"Codex","model":"Unknown","reasoning_effort":"Unknown","session_name":"Unknown"}
-```
+Before each `enqueue`, agents must check the current runtime and session context and use available host lookups to verify the program, actual model, reasoning effort, and conversation title. Send all four fields, using `Unknown` only for values that remain unverifiable after checking. Verify the returned values before acquiring. The API accepts missing fields for compatibility with older clients and queues, and the Editor displays them as `Unknown`. A retry returns the original ticket with its original metadata.
 
-Agents should supply all four identification fields on enqueue: the program, actual model, reasoning effort, and conversation title. Use `Unknown` when a value cannot be verified; do not guess. These fields are self-reported, not automatically detected. They remain optional for compatibility with existing clients and queues; missing values appear as unknown in the Editor window. A retry returns the original ticket and does not update its metadata.
+Example request with illustrative metadata.
+
+```json
+{"action":"enqueue","session_id":"task-a","label":"Inspect scene","program":"Example Agent","model":"Example Model","reasoning_effort":"high","session_name":"Lobby scene review"}
+```
 
 Optional notification: before enqueue, start `pwsh -NoProfile -File .agents/skills/unity-agent-coordination/scripts/wait_for_turn.ps1 -ProjectPath <Unity-project-path> -Timeout 120` in a persistent shell session. Use PowerShell 7 (`pwsh`) on Windows as well; if unavailable or blocked, use the status fallback without changing execution policy. Include the `notification_token` from its first `ready` JSON line in `enqueue`. If enqueue already shows your ticket as next, stop the watcher and acquire immediately. Otherwise, a `turn` event indicates that the queue may be ready; call `status` and `acquire` as usual. The file watcher needs read access to the project's Library folder. On timeout, interruption, domain reload, or failure, reconcile with `status`; cancel your waiting ticket before starting a replacement watcher because enqueue retries retain the original token. This best-effort channel cannot restart an agent whose turn has ended; polling remains available.
 
@@ -54,4 +56,4 @@ The Unity router refuses a new acquisition while compiling, importing, building,
 
 An adapter forwards JSON to `UnityAgentCoordinationCommandRouter.ExecuteJson(string)` and preserves its result. The Core protocol can also be called through `CoordinationProtocol.ExecuteJson(json, service, editorReady)`. Adapters must not edit queue files directly. Other bridge commands are not intercepted: agents must honor ownership before every batch of Editor operations.
 
-If a session disappears, its ticket stays in place. The user may use **Reset Abandoned Queue** in the Editor window only after confirming the old owner has stopped. This recovery action is deliberately outside the AI protocol. Corrupt queue files fail closed instead of silently discarding ownership.
+If a session disappears, its ticket stays in place. In the Editor window, the user can remove one ticket with **Cancel Ticket** or clear the queue with **Reset Abandoned Queue**. Before canceling any active ticket, confirm that its session has stopped using the Editor. Both recovery actions are outside the AI protocol. Corrupt queue files fail closed instead of silently discarding ownership.

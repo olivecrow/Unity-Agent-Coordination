@@ -1,4 +1,4 @@
 interface:
   display_name: "Unity Agent Coordination"
   short_description: "Take turns using Unity Editor with FIFO tickets"
-  default_prompt: "Use $unity-agent-coordination with the project-local package and existing bridge to enqueue, wait, and acquire the Editor for this turn; release active or cancel waiting tickets and verify removal before ending the turn or waiting for user input, even if this conversation will continue. Enqueue a fresh ticket when resuming."
+  default_prompt: "Use $unity-agent-coordination to look up and submit the current program, model, reasoning level, and conversation title before drawing a Unity Editor ticket. Verify the recorded metadata before acquiring and verify ticket removal before yielding."

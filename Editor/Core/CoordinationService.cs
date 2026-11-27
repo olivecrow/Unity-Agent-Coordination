@@ -49,7 +49,7 @@ namespace Olivecrow.UnityAgentCoordination
             string id = Required(ticketId, "ticket_id");
             EditorTicket result = store.Change(state =>
             {
-                EditorTicket ticket = OwnedTicket(state, session, id);
+                EditorTicket ticket = FindTicket(state, id, session);
                 if (ticket.State == TicketStates.Active) return ticket;
                 if (state.Tickets.Any(item => item.State == TicketStates.Active))
                     throw new CoordinationException("editor_busy", "Another session is using the Editor.");
@@ -70,7 +70,7 @@ namespace Olivecrow.UnityAgentCoordination
             string id = Required(ticketId, "ticket_id");
             EditorTicket result = store.Change(state =>
             {
-                EditorTicket ticket = OwnedTicket(state, session, id);
+                EditorTicket ticket = FindTicket(state, id, session);
                 if (ticket.State != TicketStates.Active)
                     throw new CoordinationException("ticket_not_active", "Acquire the ticket before returning it, or cancel a waiting ticket.");
                 state.Tickets.Remove(ticket);
@@ -83,12 +83,20 @@ namespace Olivecrow.UnityAgentCoordination
         }
 
         public EditorTicket Cancel(string sessionId, string ticketId)
+            => CancelTicket(ticketId, Required(sessionId, "session_id"), allowActive: true);
+
+        // For an operator's explicit recovery action in the Editor window, not the AI protocol.
+        public EditorTicket CancelFromEditor(string ticketId, bool allowActive)
+            => CancelTicket(ticketId, session: null, allowActive: allowActive);
+
+        private EditorTicket CancelTicket(string ticketId, string session, bool allowActive)
         {
-            string session = Required(sessionId, "session_id");
             string id = Required(ticketId, "ticket_id");
             EditorTicket result = store.Change(state =>
             {
-                EditorTicket ticket = OwnedTicket(state, session, id);
+                EditorTicket ticket = FindTicket(state, id, session);
+                if (!allowActive && ticket.State == TicketStates.Active)
+                    throw new CoordinationException("ticket_became_active", "The ticket is now active. Review its current state before canceling it.");
                 state.Tickets.Remove(ticket);
                 ticket.State = TicketStates.Canceled;
                 return ticket;
@@ -139,11 +147,11 @@ namespace Olivecrow.UnityAgentCoordination
             foreach (EditorTicket ticket in removed) ClearNotification(ticket);
         }
 
-        private static EditorTicket OwnedTicket(CoordinationState state, string session, string id)
+        private static EditorTicket FindTicket(CoordinationState state, string id, string session)
         {
             EditorTicket ticket = state.Tickets.FirstOrDefault(item => item.TicketId == id);
             if (ticket == null) throw new CoordinationException("ticket_not_found", "This ticket is no longer in the queue.");
-            if (ticket.SessionId != session) throw new CoordinationException("not_ticket_owner", "Only the session that drew the ticket may use or return it.");
+            if (session != null && ticket.SessionId != session) throw new CoordinationException("not_ticket_owner", "Only the session that drew the ticket may use or return it.");
             return ticket;
         }
 
